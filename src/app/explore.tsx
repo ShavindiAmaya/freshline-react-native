@@ -1,4 +1,5 @@
 import { Image } from 'expo-image';
+import { useRouter } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { Platform, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -8,20 +9,21 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Collapsible } from '@/components/ui/collapsible';
 import { WebBadge } from '@/components/web-badge';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 export default function TabTwoScreen() {
+  const router = useRouter();
   const safeAreaInsets = useSafeAreaInsets();
   const insets = {
     ...safeAreaInsets,
-    bottom: safeAreaInsets.bottom + BottomTabInset + Spacing.three,
+    bottom: safeAreaInsets.bottom + Spacing.four,
   };
   const theme = useTheme();
 
   const contentPlatformStyle = Platform.select({
     android: {
-      paddingTop: insets.top,
+      paddingTop: insets.top + Spacing.three,
       paddingLeft: insets.left,
       paddingRight: insets.right,
       paddingBottom: insets.bottom,
@@ -38,6 +40,16 @@ export default function TabTwoScreen() {
       contentInset={insets}
       contentContainerStyle={[styles.contentContainer, contentPlatformStyle]}>
       <ThemedView style={styles.container}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Back to FreshLine Home"
+          onPress={() => router.back()}
+          style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}>
+          <ThemedText type="smallBold" style={styles.backButtonText}>
+            ← Back to FreshLine Home
+          </ThemedText>
+        </Pressable>
+
         <ThemedView style={styles.titleContainer}>
           <ThemedText type="subtitle">Explore</ThemedText>
           <ThemedText style={styles.centerText} themeColor="textSecondary">
@@ -136,6 +148,17 @@ const styles = StyleSheet.create({
   container: {
     maxWidth: MaxContentWidth,
     flexGrow: 1,
+  },
+  backButton: {
+    paddingHorizontal: Spacing.four,
+    paddingTop: Spacing.three,
+    paddingBottom: Spacing.one,
+    alignSelf: 'flex-start',
+  },
+  backButtonText: {
+    color: '#15803D',
+    fontSize: 14,
+    fontWeight: '700',
   },
   titleContainer: {
     gap: Spacing.three,
