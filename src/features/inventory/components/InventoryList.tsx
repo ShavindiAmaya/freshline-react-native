@@ -1,14 +1,13 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { FreshTheme } from '@/constants/freshline-theme';
-import { FoodItem } from '@/types/food';
-import { StorageFilter } from '../types/inventory.types';
+import { InventoryFoodItem, StorageFilter } from '../types/inventory.types';
 import { FoodItemCard } from './FoodItemCard';
 
 interface InventoryListProps {
-  items: FoodItem[];
+  items: InventoryFoodItem[];
   activeFilter: StorageFilter;
-  onPressItem: (item: FoodItem) => void;
+  onPressItem: (item: InventoryFoodItem) => void;
 }
 
 export function InventoryList({

@@ -11,9 +11,10 @@ import {
   Platform,
 } from 'react-native';
 import { FreshTheme } from '@/constants/freshline-theme';
-import { FoodCategory, FoodItem, StorageLocation } from '@/types/food';
-import { CATEGORY_DEFAULT_ICONS } from '../services/inventoryService';
+import { FoodCategory, StorageLocation } from '@/types/food';
+import { CATEGORY_DEFAULT_ICONS, getTodayDateString } from '../services/inventoryService';
 import {
+  InventoryFoodItem,
   InventoryValidationErrors,
   UpdateFoodItemInput,
 } from '../types/inventory.types';
@@ -26,7 +27,7 @@ import {
 
 interface EditFoodModalProps {
   visible: boolean;
-  item: FoodItem | null;
+  item: InventoryFoodItem | null;
   onClose: () => void;
   onUpdate: (id: string, update: UpdateFoodItemInput) => Promise<void> | void;
 }
@@ -54,6 +55,7 @@ export function EditFoodModal({
   const [location, setLocation] = useState<StorageLocation>('fridge');
   const [quantity, setQuantity] = useState('1');
   const [unit, setUnit] = useState('pcs');
+  const [purchaseDate, setPurchaseDate] = useState(getTodayDateString());
   const [expiryDays, setExpiryDays] = useState(3);
   const [icon, setIcon] = useState('🥗');
   const [errors, setErrors] = useState<InventoryValidationErrors>({});
@@ -67,6 +69,10 @@ export function EditFoodModal({
       setLocation(item.storage_location);
       setQuantity(item.quantity.toString());
       setUnit(item.unit);
+      const initialPurchaseDate =
+        item.purchase_date ??
+        (item.created_at ? item.created_at.split('T')[0] : getTodayDateString());
+      setPurchaseDate(initialPurchaseDate);
       setExpiryDays(item.days_left);
       setIcon(item.icon);
       setErrors({});
@@ -87,7 +93,10 @@ export function EditFoodModal({
   const calculateExpiryDateIso = (days: number): string => {
     const targetDate = new Date();
     targetDate.setDate(targetDate.getDate() + days);
-    return targetDate.toISOString();
+    const yr = targetDate.getFullYear();
+    const mo = String(targetDate.getMonth() + 1).padStart(2, '0');
+    const da = String(targetDate.getDate()).padStart(2, '0');
+    return `${yr}-${mo}-${da}`;
   };
 
   const handleSubmit = async () => {
@@ -100,6 +109,7 @@ export function EditFoodModal({
       storage_location: location,
       quantity: isNaN(parsedQty) ? 0 : parsedQty,
       unit,
+      purchase_date: purchaseDate,
       expiry_date: expiryDateIso,
       icon,
     };
@@ -300,7 +310,58 @@ export function EditFoodModal({
               ))}
             </View>
 
-            {/* 5. Expiry Days Picker */}
+            {/* 5. Purchase Date (Existing or editable) */}
+            <View style={styles.fieldGroup}>
+              <Text style={styles.fieldLabel}>Purchase Date *</Text>
+              <View style={styles.purchaseDateRow}>
+                <TextInput
+                  style={[
+                    styles.textInput,
+                    errors.purchase_date ? styles.inputError : null,
+                  ]}
+                  placeholder="YYYY-MM-DD"
+                  placeholderTextColor={FreshTheme.colors.textMuted}
+                  value={purchaseDate}
+                  onChangeText={(val) => {
+                    setPurchaseDate(val);
+                    if (errors.purchase_date)
+                      setErrors((prev) => ({ ...prev, purchase_date: undefined }));
+                  }}
+                />
+                <View style={styles.presetDateButtonsRow}>
+                  <Pressable
+                    onPress={() => setPurchaseDate(getTodayDateString())}
+                    style={[
+                      styles.datePresetChip,
+                      purchaseDate === getTodayDateString() && styles.datePresetChipActive,
+                    ]}>
+                    <Text
+                      style={[
+                        styles.datePresetChipText,
+                        purchaseDate === getTodayDateString() &&
+                          styles.datePresetChipTextActive,
+                      ]}>
+                      Today
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => {
+                      const orig =
+                        item.purchase_date ??
+                        (item.created_at ? item.created_at.split('T')[0] : getTodayDateString());
+                      setPurchaseDate(orig);
+                    }}
+                    style={styles.datePresetChip}>
+                    <Text style={styles.datePresetChipText}>Reset</Text>
+                  </Pressable>
+                </View>
+              </View>
+              {errors.purchase_date ? (
+                <Text style={styles.fieldErrorText}>{errors.purchase_date}</Text>
+              ) : null}
+            </View>
+
+            {/* 6. Expiry Days Picker */}
             <View style={styles.fieldGroup}>
               <Text style={styles.fieldLabel}>Expiry Timeframe *</Text>
               <ScrollView
@@ -560,6 +621,38 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   unitChipTextActive: {
+    color: FreshTheme.colors.primaryDark,
+    fontWeight: '700',
+  },
+  purchaseDateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  presetDateButtonsRow: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  datePresetChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    borderRadius: FreshTheme.borderRadius.md,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  datePresetChipActive: {
+    backgroundColor: FreshTheme.colors.primaryLight,
+    borderColor: FreshTheme.colors.primary,
+  },
+  datePresetChipText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: FreshTheme.colors.textSecondary,
+  },
+  datePresetChipTextActive: {
     color: FreshTheme.colors.primaryDark,
     fontWeight: '700',
   },

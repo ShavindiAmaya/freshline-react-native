@@ -1,6 +1,14 @@
 import { FoodCategory, FoodItem, StorageLocation } from '@/types/food';
 
 /**
+ * Extended FoodItem for Member B inventory feature supporting purchase_date,
+ * backwards-compatible with the shared FoodItem interface.
+ */
+export interface InventoryFoodItem extends FoodItem {
+  purchase_date?: string; // ISO 8601 string (e.g. YYYY-MM-DD or full timestamp)
+}
+
+/**
  * Storage filter options: All items or filtered by specific storage location
  */
 export type StorageFilter = 'all' | StorageLocation;
@@ -14,6 +22,7 @@ export interface CreateFoodItemInput {
   storage_location: StorageLocation;
   quantity: number;
   unit: string;
+  purchase_date?: string; // ISO 8601 string (defaults to today if not provided)
   expiry_date: string; // ISO 8601 string (e.g. YYYY-MM-DD or full timestamp)
   icon?: string;
   notes?: string;
@@ -28,6 +37,7 @@ export interface UpdateFoodItemInput {
   storage_location?: StorageLocation;
   quantity?: number;
   unit?: string;
+  purchase_date?: string;
   expiry_date?: string;
   icon?: string;
   notes?: string;
@@ -42,6 +52,7 @@ export interface InventoryValidationErrors {
   storage_location?: string;
   quantity?: string;
   unit?: string;
+  purchase_date?: string;
   expiry_date?: string;
   general?: string;
 }

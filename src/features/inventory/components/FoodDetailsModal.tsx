@@ -1,14 +1,15 @@
 import React from 'react';
 import { View, Text, StyleSheet, Modal, Pressable, Platform } from 'react-native';
 import { FreshTheme } from '@/constants/freshline-theme';
-import { FoodItem, FreshnessStatus } from '@/types/food';
+import { FreshnessStatus } from '@/types/food';
+import { InventoryFoodItem } from '../types/inventory.types';
 
 interface FoodDetailsModalProps {
   visible: boolean;
-  item: FoodItem | null;
+  item: InventoryFoodItem | null;
   onClose: () => void;
-  onEdit: (item: FoodItem) => void;
-  onDelete: (item: FoodItem) => void;
+  onEdit: (item: InventoryFoodItem) => void;
+  onDelete: (item: InventoryFoodItem) => void;
 }
 
 export function FoodDetailsModal({
@@ -49,14 +50,35 @@ export function FoodDetailsModal({
   const formattedExpiryDate = (() => {
     try {
       const d = new Date(item.expiry_date);
-      return d.toLocaleDateString(undefined, {
-        weekday: 'short',
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-      });
+      return isNaN(d.getTime())
+        ? item.expiry_date
+        : d.toLocaleDateString(undefined, {
+            weekday: 'short',
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric',
+          });
     } catch {
       return item.expiry_date;
+    }
+  })();
+
+  const formattedPurchaseDate = (() => {
+    const raw =
+      item.purchase_date ??
+      (item.created_at ? item.created_at.split('T')[0] : null);
+    if (!raw) return 'Not recorded';
+    try {
+      const d = new Date(raw);
+      return isNaN(d.getTime())
+        ? raw
+        : d.toLocaleDateString(undefined, {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric',
+          });
+    } catch {
+      return raw;
     }
   })();
 
@@ -143,10 +165,17 @@ export function FoodDetailsModal({
             </View>
           </View>
 
-          {/* Expiry Date Row */}
-          <View style={styles.expiryRow}>
-            <Text style={styles.expiryLabel}>Target Expiry Date:</Text>
-            <Text style={styles.expiryValue}>{formattedExpiryDate}</Text>
+          {/* Dates Box showing Purchase Date and Target Expiry Date */}
+          <View style={styles.datesBox}>
+            <View style={styles.dateBlock}>
+              <Text style={styles.dateBlockLabel}>PURCHASE DATE</Text>
+              <Text style={styles.dateBlockValue}>📅 {formattedPurchaseDate}</Text>
+            </View>
+            <View style={styles.dateBlockDivider} />
+            <View style={styles.dateBlock}>
+              <Text style={styles.dateBlockLabel}>TARGET EXPIRY</Text>
+              <Text style={styles.dateBlockValue}>⏱️ {formattedExpiryDate}</Text>
+            </View>
           </View>
 
           {/* Action Buttons */}
@@ -307,7 +336,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 10,
-    marginVertical: 12,
+    marginTop: 8,
+    marginBottom: 12,
   },
   detailCard: {
     width: '48%',
@@ -329,27 +359,38 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: FreshTheme.colors.textPrimary,
   },
-  expiryRow: {
+  datesBox: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
     backgroundColor: FreshTheme.colors.primarySubtle,
     borderWidth: 1,
     borderColor: FreshTheme.colors.primaryBorder,
     paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingVertical: 12,
     borderRadius: FreshTheme.borderRadius.md,
     marginBottom: 16,
   },
-  expiryLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: FreshTheme.colors.textSecondary,
+  dateBlock: {
+    flex: 1,
   },
-  expiryValue: {
+  dateBlockLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: FreshTheme.colors.textSecondary,
+    marginBottom: 3,
+    letterSpacing: 0.5,
+  },
+  dateBlockValue: {
     fontSize: 12,
     fontWeight: '700',
     color: FreshTheme.colors.primaryDark,
+  },
+  dateBlockDivider: {
+    width: 1,
+    height: 28,
+    backgroundColor: FreshTheme.colors.primaryBorder,
+    marginHorizontal: 10,
   },
   actionButtonsCol: {
     gap: 10,

@@ -1,11 +1,12 @@
 import React from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { FreshTheme } from '@/constants/freshline-theme';
-import { FoodItem, FreshnessStatus } from '@/types/food';
+import { FreshnessStatus } from '@/types/food';
+import { InventoryFoodItem } from '../types/inventory.types';
 
 interface FoodItemCardProps {
-  item: FoodItem;
-  onPress: (item: FoodItem) => void;
+  item: InventoryFoodItem;
+  onPress: (item: InventoryFoodItem) => void;
 }
 
 export function FoodItemCard({ item, onPress }: FoodItemCardProps) {

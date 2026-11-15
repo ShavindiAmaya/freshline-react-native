@@ -23,6 +23,47 @@ export const VALID_STORAGE_LOCATIONS: StorageLocation[] = [
 ];
 
 /**
+ * Validates that a string matches the exact YYYY-MM-DD format using a regex
+ * and represents a real, valid calendar date (rejecting invalid dates like 2026-02-30).
+ */
+export function isValidDateString(dateStr: string): boolean {
+  if (!dateStr || typeof dateStr !== 'string') return false;
+
+  // Accept only the exact YYYY-MM-DD format using a regex
+  const regex = /^\d{4}-\d{2}-\d{2}$/;
+  if (!regex.test(dateStr)) return false;
+
+  const [yearStr, monthStr, dayStr] = dateStr.split('-');
+  const year = parseInt(yearStr, 10);
+  const month = parseInt(monthStr, 10);
+  const day = parseInt(dayStr, 10);
+
+  // Month and day range checks
+  if (month < 1 || month > 12) return false;
+  if (day < 1 || day > 31) return false;
+
+  // Calendar validity check (rejects non-existent dates such as 2026-02-30 or 2026-04-31)
+  const date = new Date(year, month - 1, day);
+  return (
+    date.getFullYear() === year &&
+    date.getMonth() === month - 1 &&
+    date.getDate() === day
+  );
+}
+
+/**
+ * Normalizes a date string or timestamp to start-of-day for calendar-day comparison.
+ */
+export function toStartOfDay(dateStr: string): number {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    return new Date(y, m - 1, d).getTime();
+  }
+  const d = new Date(dateStr);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+}
+
+/**
  * Validates a creation payload for a food item.
  */
 export function validateCreateFoodItem(
@@ -70,12 +111,23 @@ export function validateCreateFoodItem(
   }
 
   // Expiry date validation
+  let hasValidExpiry = false;
   if (!input.expiry_date || !input.expiry_date.trim()) {
     errors.expiry_date = 'Expiry date is required';
+  } else if (!isValidDateString(input.expiry_date)) {
+    errors.expiry_date = 'Invalid expiry date format (use YYYY-MM-DD)';
   } else {
-    const timestamp = Date.parse(input.expiry_date);
-    if (isNaN(timestamp)) {
-      errors.expiry_date = 'Invalid expiry date format';
+    hasValidExpiry = true;
+  }
+
+  // Purchase date validation
+  if (input.purchase_date && input.purchase_date.trim()) {
+    if (!isValidDateString(input.purchase_date)) {
+      errors.purchase_date = 'Invalid purchase date format (use YYYY-MM-DD)';
+    } else if (hasValidExpiry && input.expiry_date) {
+      if (toStartOfDay(input.purchase_date) > toStartOfDay(input.expiry_date)) {
+        errors.purchase_date = 'Purchase date must not be later than expiry date';
+      }
     }
   }
 
@@ -127,9 +179,22 @@ export function validateUpdateFoodItem(
     }
   }
 
+  let hasValidExpiry = false;
   if (input.expiry_date !== undefined) {
-    if (!input.expiry_date.trim() || isNaN(Date.parse(input.expiry_date))) {
-      errors.expiry_date = 'Invalid expiry date format';
+    if (!input.expiry_date.trim() || !isValidDateString(input.expiry_date)) {
+      errors.expiry_date = 'Invalid expiry date format (use YYYY-MM-DD)';
+    } else {
+      hasValidExpiry = true;
+    }
+  }
+
+  if (input.purchase_date !== undefined) {
+    if (!input.purchase_date.trim() || !isValidDateString(input.purchase_date)) {
+      errors.purchase_date = 'Invalid purchase date format (use YYYY-MM-DD)';
+    } else if (hasValidExpiry && input.expiry_date) {
+      if (toStartOfDay(input.purchase_date) > toStartOfDay(input.expiry_date)) {
+        errors.purchase_date = 'Purchase date must not be later than expiry date';
+      }
     }
   }
 

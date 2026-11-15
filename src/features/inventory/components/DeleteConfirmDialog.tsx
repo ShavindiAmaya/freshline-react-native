@@ -1,11 +1,11 @@
 import React from 'react';
 import { View, Text, StyleSheet, Modal, Pressable } from 'react-native';
 import { FreshTheme } from '@/constants/freshline-theme';
-import { FoodItem } from '@/types/food';
+import { InventoryFoodItem } from '../types/inventory.types';
 
 interface DeleteConfirmDialogProps {
   visible: boolean;
-  item: FoodItem | null;
+  item: InventoryFoodItem | null;
   onCancel: () => void;
   onConfirm: () => Promise<void> | void;
   isDeleting?: boolean;

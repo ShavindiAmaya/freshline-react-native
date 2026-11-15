@@ -1,7 +1,8 @@
 import { INITIAL_FOOD_ITEMS } from '@/data/mock-food-data';
-import { FoodCategory, FoodItem, FreshnessStatus } from '@/types/food';
+import { FoodCategory, FreshnessStatus } from '@/types/food';
 import {
   CreateFoodItemInput,
+  InventoryFoodItem,
   StorageFilter,
   UpdateFoodItemInput,
 } from '../types/inventory.types';
@@ -26,6 +27,17 @@ export const CATEGORY_DEFAULT_ICONS: Record<FoodCategory, string> = {
 };
 
 /**
+ * Helper to get today's date formatted as YYYY-MM-DD
+ */
+export function getTodayDateString(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/**
  * INVENTORY CRUD SERVICE (ISOLATED MOCK SERVICE)
  *
  * NOTE: This is an isolated, mock in-memory data store for Member B development.
@@ -36,7 +48,10 @@ export const CATEGORY_DEFAULT_ICONS: Record<FoodCategory, string> = {
  * contract without infringing on Member C's domain.
  */
 class InventoryService {
-  private items: FoodItem[] = [...INITIAL_FOOD_ITEMS];
+  private items: InventoryFoodItem[] = INITIAL_FOOD_ITEMS.map((item) => ({
+    ...item,
+    purchase_date: item.created_at ? item.created_at.split('T')[0] : getTodayDateString(),
+  }));
 
   /**
    * Helper to derive mock days_left and status to satisfy FoodItem contract.
@@ -68,14 +83,14 @@ class InventoryService {
   /**
    * Fetch all inventory items
    */
-  async getAll(): Promise<FoodItem[]> {
+  async getAll(): Promise<InventoryFoodItem[]> {
     return Promise.resolve([...this.items]);
   }
 
   /**
    * Fetch a single item by id
    */
-  async getById(id: string): Promise<FoodItem | null> {
+  async getById(id: string): Promise<InventoryFoodItem | null> {
     const item = this.items.find((i) => i.id === id);
     return Promise.resolve(item ? { ...item } : null);
   }
@@ -83,7 +98,7 @@ class InventoryService {
   /**
    * Fetch items filtered by storage location
    */
-  async getByLocation(location: StorageFilter): Promise<FoodItem[]> {
+  async getByLocation(location: StorageFilter): Promise<InventoryFoodItem[]> {
     if (location === 'all') {
       return this.getAll();
     }
@@ -94,8 +109,15 @@ class InventoryService {
   /**
    * Create a new food item in inventory
    */
-  async create(input: CreateFoodItemInput): Promise<FoodItem> {
-    const errors = validateCreateFoodItem(input);
+  async create(input: CreateFoodItemInput): Promise<InventoryFoodItem> {
+    // Default purchase_date to today if omitted
+    const effectivePurchaseDate = input.purchase_date?.trim() || getTodayDateString();
+    const payloadWithDefault: CreateFoodItemInput = {
+      ...input,
+      purchase_date: effectivePurchaseDate,
+    };
+
+    const errors = validateCreateFoodItem(payloadWithDefault);
     if (hasValidationErrors(errors)) {
       throw new Error(`Validation failed: ${JSON.stringify(errors)}`);
     }
@@ -103,13 +125,14 @@ class InventoryService {
     const { days_left, status, status_label } = this.deriveMockStatus(input.expiry_date);
     const fallbackIcon = CATEGORY_DEFAULT_ICONS[input.category] || '🥗';
 
-    const newItem: FoodItem = {
+    const newItem: InventoryFoodItem = {
       id: `food_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       name: input.name.trim(),
       category: input.category,
       storage_location: input.storage_location,
       quantity: input.quantity,
       unit: input.unit.trim(),
+      purchase_date: effectivePurchaseDate,
       expiry_date: input.expiry_date,
       days_left,
       status,
@@ -128,7 +151,7 @@ class InventoryService {
   /**
    * Update an existing food item
    */
-  async update(id: string, input: UpdateFoodItemInput): Promise<FoodItem> {
+  async update(id: string, input: UpdateFoodItemInput): Promise<InventoryFoodItem> {
     const errors = validateUpdateFoodItem(input);
     if (hasValidationErrors(errors)) {
       throw new Error(`Validation failed: ${JSON.stringify(errors)}`);
@@ -143,13 +166,17 @@ class InventoryService {
     const updatedExpiry = input.expiry_date ?? existing.expiry_date;
     const { days_left, status, status_label } = this.deriveMockStatus(updatedExpiry);
 
-    const updatedItem: FoodItem = {
+    const updatedItem: InventoryFoodItem = {
       ...existing,
       name: input.name !== undefined ? input.name.trim() : existing.name,
       category: input.category ?? existing.category,
       storage_location: input.storage_location ?? existing.storage_location,
       quantity: input.quantity ?? existing.quantity,
       unit: input.unit !== undefined ? input.unit.trim() : existing.unit,
+      purchase_date:
+        input.purchase_date !== undefined
+          ? input.purchase_date.trim()
+          : existing.purchase_date,
       expiry_date: updatedExpiry,
       days_left,
       status,
@@ -176,7 +203,10 @@ class InventoryService {
    * Reset store to initial mock data (helpful for dev/testing)
    */
   async resetToMockData(): Promise<void> {
-    this.items = [...INITIAL_FOOD_ITEMS];
+    this.items = INITIAL_FOOD_ITEMS.map((item) => ({
+      ...item,
+      purchase_date: item.created_at ? item.created_at.split('T')[0] : getTodayDateString(),
+    }));
     return Promise.resolve();
   }
 }

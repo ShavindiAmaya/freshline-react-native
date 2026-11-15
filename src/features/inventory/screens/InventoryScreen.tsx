@@ -9,7 +9,6 @@ import {
   RefreshControl,
 } from 'react-native';
 import { FreshTheme } from '@/constants/freshline-theme';
-import { FoodItem } from '@/types/food';
 import { AddFoodModal } from '../components/AddFoodModal';
 import { DeleteConfirmDialog } from '../components/DeleteConfirmDialog';
 import { EditFoodModal } from '../components/EditFoodModal';
@@ -19,12 +18,13 @@ import { StorageFilterTabs } from '../components/StorageFilterTabs';
 import { inventoryService } from '../services/inventoryService';
 import {
   CreateFoodItemInput,
+  InventoryFoodItem,
   StorageFilter,
   UpdateFoodItemInput,
 } from '../types/inventory.types';
 
 export function InventoryScreen() {
-  const [items, setItems] = useState<FoodItem[]>([]);
+  const [items, setItems] = useState<InventoryFoodItem[]>([]);
   const [activeFilter, setActiveFilter] = useState<StorageFilter>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -36,7 +36,7 @@ export function InventoryScreen() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [selectedItem, setSelectedItem] = useState<FoodItem | null>(null);
+  const [selectedItem, setSelectedItem] = useState<InventoryFoodItem | null>(null);
 
   // In-app transient notification toast
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -123,19 +123,19 @@ export function InventoryScreen() {
   };
 
   // Open Details Modal when card is tapped
-  const handlePressItem = (item: FoodItem) => {
+  const handlePressItem = (item: InventoryFoodItem) => {
     setSelectedItem(item);
     setIsDetailsModalOpen(true);
   };
 
   // Trigger Edit from Details Modal
-  const handleTriggerEdit = (item: FoodItem) => {
+  const handleTriggerEdit = (item: InventoryFoodItem) => {
     setSelectedItem(item);
     setIsEditModalOpen(true);
   };
 
   // Trigger Delete from Details Modal
-  const handleTriggerDelete = (item: FoodItem) => {
+  const handleTriggerDelete = (item: InventoryFoodItem) => {
     setSelectedItem(item);
     setIsDeleteDialogOpen(true);
   };
