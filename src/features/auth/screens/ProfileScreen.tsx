@@ -1,15 +1,14 @@
-import React from 'react';
+import { StatusBar } from 'expo-status-bar';
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  Pressable,
   ActivityIndicator,
   Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { StatusBar } from 'expo-status-bar';
 
 import { FreshTheme } from '@/constants/freshline-theme';
 import { ProfileScreenProps } from '../types/auth.types';
@@ -64,10 +63,12 @@ export function ProfileScreen({
 }: ProfileScreenProps) {
   // Extract user data from Supabase Auth user object
   const fullName =
+    (user.user_metadata?.display_name as string | undefined)?.trim() ||
     (user.user_metadata?.full_name as string | undefined)?.trim() ||
     'FreshLine Member';
+
   const email = user.email || 'No email registered';
-  const initials = extractInitials(user.user_metadata?.full_name, user.email);
+  const initials = extractInitials(fullName, user.email);
 
   // Email verification: Supabase sets email_confirmed_at or confirmed_at
   const isEmailVerified = Boolean(

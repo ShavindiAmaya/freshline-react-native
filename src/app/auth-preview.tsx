@@ -1,48 +1,56 @@
-import React, { useState, useEffect } from 'react';
+
+import type { Session, User } from '@supabase/supabase-js';
+import { Redirect } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import { useEffect, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
+  ActivityIndicator,
   Alert,
   Modal,
-  Pressable,
-  TextInput,
-  ActivityIndicator,
   Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from 'react-native';
-import { StatusBar } from 'expo-status-bar';
-import type { Session, User } from '@supabase/supabase-js';
 
 import { LoginScreen } from '@/features/auth/screens/LoginScreen';
 import { RegisterScreen } from '@/features/auth/screens/RegisterScreen';
-import { ProfileScreen } from '@/features/auth/screens/ProfileScreen';
-import {
+
+import type {
   LoginFormValues,
   RegisterFormValues,
 } from '@/features/auth/types/auth.types';
+
 import {
-  signIn,
-  signUp,
-  signOut,
   getCurrentSession,
   resetPassword,
+  signIn,
+  signUp,
 } from '@/features/auth/services/auth.service';
+
 import { FreshTheme } from '@/constants/freshline-theme';
 
 /**
- * Temporary Authentication Preview Route
+ * FreshLine Authentication Route
  *
  * Route: /auth-preview
  *
- * Integrates Login and Register screens with the shared Supabase authentication
- * service. Provides:
- * - Real email / password sign in with server error presentation
- * - Real registration with user metadata (full_name) and email confirmation handling
- * - Password reset requests with feedback
- * - Authenticated session state preview with real sign out
+ * Features:
+ * - Login
+ * - Registration
+ * - Email confirmation handling
+ * - Forgot password
+ * - Existing session restoration
+ * - Redirect authenticated users to Dashboard
  */
+
 export default function AuthPreviewRoute() {
-  const [currentScreen, setCurrentScreen] = useState<'login' | 'register'>('login');
+  const [currentScreen, setCurrentScreen] = useState<'login' | 'register'>(
+    'login'
+  );
+
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
 
@@ -53,21 +61,23 @@ export default function AuthPreviewRoute() {
   // Forgot Password modal state
   const [showResetModal, setShowResetModal] = useState<boolean>(false);
   const [resetEmail, setResetEmail] = useState<string>('');
-  const [isResettingPassword, setIsResettingPassword] = useState<boolean>(false);
+  const [isResettingPassword, setIsResettingPassword] =
+    useState<boolean>(false);
 
-  // Check for existing Supabase session on mount
+  // Restore an existing Supabase session when this route opens
   useEffect(() => {
     let isMounted = true;
 
     async function loadActiveSession() {
       try {
         const activeSession = await getCurrentSession();
+
         if (isMounted && activeSession) {
           setSession(activeSession);
           setUser(activeSession.user);
         }
-      } catch {
-        // Ignored: user is unauthenticated or credentials pending
+      } catch (error) {
+        console.error('Failed to restore authentication session:', error);
       }
     }
 
@@ -87,11 +97,15 @@ export default function AuthPreviewRoute() {
 
     try {
       const result = await signIn(values);
+
       setSession(result.session);
       setUser(result.user);
 
       const displayName =
-        result.user?.user_metadata?.full_name || result.user?.email || 'User';
+        result.user?.user_metadata?.display_name ||
+        result.user?.user_metadata?.full_name ||
+        result.user?.email ||
+        'User';
 
       Alert.alert(
         'Login Successful',
@@ -100,7 +114,9 @@ export default function AuthPreviewRoute() {
       );
     } catch (err: any) {
       const message = err?.message || 'Invalid login credentials.';
+
       setLoginError(message);
+
       Alert.alert('Sign In Failed', message, [{ text: 'OK' }]);
     } finally {
       setIsLoading(false);
@@ -120,16 +136,22 @@ export default function AuthPreviewRoute() {
       if (result.session) {
         setSession(result.session);
         setUser(result.user);
+
+        const displayName =
+          result.user?.user_metadata?.display_name ||
+          result.user?.user_metadata?.full_name ||
+          'Member';
+
         Alert.alert(
           'Registration Successful',
-          `Welcome to FreshLine, ${result.user?.user_metadata?.full_name || 'Member'}!`,
+          `Welcome to FreshLine, ${displayName}!`,
           [{ text: 'OK' }]
         );
       } else {
-        // Email confirmation is enabled in Supabase: session is null
+        // Email confirmation is enabled in Supabase
         Alert.alert(
           'Verification Required',
-          'Account created. Please verify your email.',
+          'Account created successfully. Please verify your email before logging in.',
           [
             {
               text: 'Go to Login',
@@ -142,32 +164,12 @@ export default function AuthPreviewRoute() {
         );
       }
     } catch (err: any) {
-      const message = err?.message || 'Registration failed. Please try again.';
+      const message =
+        err?.message || 'Registration failed. Please try again.';
+
       setRegisterError(message);
+
       Alert.alert('Registration Failed', message, [{ text: 'OK' }]);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Handle Sign Out
-  const handleSignOut = async () => {
-    if (isLoading) return;
-
-    setIsLoading(true);
-
-    try {
-      await signOut();
-      setSession(null);
-      setUser(null);
-      setLoginError(null);
-      setRegisterError(null);
-      Alert.alert('Signed Out', 'You have been signed out successfully.', [
-        { text: 'OK' },
-      ]);
-    } catch (err: any) {
-      const message = err?.message || 'Failed to sign out.';
-      Alert.alert('Sign Out Error', message, [{ text: 'OK' }]);
     } finally {
       setIsLoading(false);
     }
@@ -176,8 +178,12 @@ export default function AuthPreviewRoute() {
   // Handle Password Reset submission
   const handleResetPasswordSubmit = async () => {
     const trimmed = resetEmail.trim().toLowerCase();
+
     if (!trimmed) {
-      Alert.alert('Email Required', 'Please enter your email address to receive reset instructions.');
+      Alert.alert(
+        'Email Required',
+        'Please enter your email address to receive reset instructions.'
+      );
       return;
     }
 
@@ -187,21 +193,26 @@ export default function AuthPreviewRoute() {
 
     try {
       await resetPassword(trimmed);
+
       setShowResetModal(false);
       setResetEmail('');
+
       Alert.alert(
         'Reset Email Sent',
         'If an account exists with this email, password reset instructions have been dispatched.',
         [{ text: 'OK' }]
       );
     } catch (err: any) {
-      const message = err?.message || 'Failed to send password reset email.';
+      const message =
+        err?.message || 'Failed to send password reset email.';
+
       Alert.alert('Reset Password Failed', message, [{ text: 'OK' }]);
     } finally {
       setIsResettingPassword(false);
     }
   };
 
+  // Handle Terms of Service
   const handlePressTerms = () => {
     Alert.alert(
       'Terms of Service',
@@ -210,6 +221,7 @@ export default function AuthPreviewRoute() {
     );
   };
 
+  // Handle Privacy Policy
   const handlePressPrivacy = () => {
     Alert.alert(
       'Privacy Policy',
@@ -218,18 +230,12 @@ export default function AuthPreviewRoute() {
     );
   };
 
-  // 1. Authenticated Profile View
+  // Authenticated users should go to the actual Dashboard
   if (session && user) {
-    return (
-      <ProfileScreen
-        user={user}
-        onSignOut={handleSignOut}
-        isLoading={isLoading}
-      />
-    );
+    return <Redirect href="/dashboard" />;
   }
 
-  // 2. Unauthenticated Login / Register Flow
+  // Unauthenticated Login / Register UI
   return (
     <View style={styles.container}>
       <StatusBar style="dark" />
@@ -266,16 +272,21 @@ export default function AuthPreviewRoute() {
         visible={showResetModal}
         transparent
         animationType="fade"
-        onRequestClose={() => setShowResetModal(false)}>
+        onRequestClose={() => setShowResetModal(false)}
+      >
         <Pressable
           style={styles.modalBackdrop}
-          onPress={() => setShowResetModal(false)}>
+          onPress={() => setShowResetModal(false)}
+        >
           <Pressable
             style={styles.modalCard}
-            onPress={(e) => e.stopPropagation()}>
+            onPress={(e) => e.stopPropagation()}
+          >
             <Text style={styles.modalTitle}>Reset Password</Text>
+
             <Text style={styles.modalSubtitle}>
-              Enter your registered email address to receive password reset instructions.
+              Enter your registered email address to receive password reset
+              instructions.
             </Text>
 
             <TextInput
@@ -297,18 +308,22 @@ export default function AuthPreviewRoute() {
                   setShowResetModal(false);
                   setResetEmail('');
                 }}
-                disabled={isResettingPassword}>
+                disabled={isResettingPassword}
+              >
                 <Text style={styles.modalCancelButtonText}>Cancel</Text>
               </Pressable>
 
               <Pressable
                 style={[styles.modalButton, styles.modalSubmitButton]}
                 onPress={handleResetPasswordSubmit}
-                disabled={isResettingPassword}>
+                disabled={isResettingPassword}
+              >
                 {isResettingPassword ? (
                   <ActivityIndicator size="small" color="#FFFFFF" />
                 ) : (
-                  <Text style={styles.modalSubmitButtonText}>Send Link</Text>
+                  <Text style={styles.modalSubmitButtonText}>
+                    Send Link
+                  </Text>
                 )}
               </Pressable>
             </View>
@@ -324,6 +339,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#FFFFFF',
   },
+
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(15, 23, 42, 0.45)',
@@ -331,6 +347,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: FreshTheme.spacing.lg,
   },
+
   modalCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: FreshTheme.borderRadius.xl,
@@ -339,12 +356,14 @@ const styles = StyleSheet.create({
     maxWidth: 400,
     ...FreshTheme.shadows.floating,
   },
+
   modalTitle: {
     fontSize: 18,
     fontWeight: '800',
     color: FreshTheme.colors.textPrimary,
     marginBottom: 4,
   },
+
   modalSubtitle: {
     fontSize: 13,
     fontWeight: '500',
@@ -352,6 +371,7 @@ const styles = StyleSheet.create({
     marginBottom: FreshTheme.spacing.md,
     lineHeight: 18,
   },
+
   modalInput: {
     backgroundColor: '#F8FAFC',
     borderWidth: 1.5,
@@ -363,11 +383,13 @@ const styles = StyleSheet.create({
     color: FreshTheme.colors.textPrimary,
     marginBottom: FreshTheme.spacing.md,
   },
+
   modalActionsRow: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
     gap: 10,
   },
+
   modalButton: {
     paddingVertical: 10,
     paddingHorizontal: 16,
@@ -376,17 +398,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     minWidth: 90,
   },
+
   modalCancelButton: {
     backgroundColor: '#F1F5F9',
   },
+
   modalCancelButtonText: {
     fontSize: 13,
     fontWeight: '700',
     color: FreshTheme.colors.textSecondary,
   },
+
   modalSubmitButton: {
     backgroundColor: FreshTheme.colors.primary,
   },
+
   modalSubmitButtonText: {
     fontSize: 13,
     fontWeight: '800',

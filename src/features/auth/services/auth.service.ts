@@ -1,3 +1,4 @@
+
 /**
  * FreshLine Authentication Service
  *
@@ -15,12 +16,12 @@
  * - Only permitted registration fields are transmitted.
  */
 
+import { supabase } from '@/lib/supabase';
 import type {
   AuthChangeEvent,
   Session,
   User,
 } from '@supabase/supabase-js';
-import { supabase } from '@/lib/supabase';
 import type {
   LoginFormValues,
   RegisterFormValues,
@@ -45,7 +46,7 @@ export type AuthStateChangeCallback = (
 /**
  * Registers a new user with email and password.
  * - Normalizes email (trimmed & lowercased)
- * - Transmits fullName as user metadata (`full_name`)
+ * - Transmits fullName as user metadata (`display_name`)
  * - Omits confirmPassword
  * - Handles email confirmation enabled flow (where session may be null)
  */
@@ -58,7 +59,7 @@ export async function signUp(values: RegisterFormValues): Promise<SignUpResult> 
     password: values.password,
     options: {
       data: {
-        full_name: trimmedFullName,
+        display_name: trimmedFullName,
       },
     },
   });
@@ -135,7 +136,8 @@ export async function getCurrentUser(): Promise<User | null> {
 }
 
 /**
- * Subscribes to Supabase authentication state transitions (SIGNED_IN, SIGNED_OUT, TOKEN_REFRESHED, etc.).
+ * Subscribes to Supabase authentication state transitions
+ * (SIGNED_IN, SIGNED_OUT, TOKEN_REFRESHED, etc.).
  * Returns a cleanup unsubscribe function.
  */
 export function subscribeToAuthChanges(
@@ -198,4 +200,3 @@ export const authService = {
   resetPassword,
   updatePassword,
 };
-
