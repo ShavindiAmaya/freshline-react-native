@@ -12,7 +12,7 @@ import {
 
 import {
   mapDbRowToWasteRecord,
-} from './services/waste.service.ts';
+} from './services/mapper.ts';
 
 let passedCount = 0;
 let failedCount = 0;
