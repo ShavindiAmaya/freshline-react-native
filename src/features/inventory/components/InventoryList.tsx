@@ -17,8 +17,9 @@ export function InventoryList({
   onPressItem,
 }: InventoryListProps) {
   if (items.length === 0) {
-    // Creates a readable description of the selected filters.    const storageLabel =
-    activeFilter === 'all' ? null : `${activeFilter} storage`;
+    // Creates a readable description of the selected filters.
+    const storageLabel =
+      activeFilter === 'all' ? null : `${activeFilter} storage`;
     const expiryLabel =
       activeExpiryFilter === 'all' ? null : `"${activeExpiryFilter}"`;
 
