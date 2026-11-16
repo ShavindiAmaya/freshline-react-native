@@ -15,6 +15,7 @@ import {
   View,
 } from 'react-native';
 import { Image } from 'expo-image';
+import { SymbolView } from 'expo-symbols';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AddFoodModal } from '@/components/dashboard/AddFoodModal';
@@ -37,6 +38,7 @@ import {
   subscribeToAuthChanges,
 } from '@/features/auth/services/auth.service';
 import {
+  DietaryPreference,
   getProfile,
   updateDisplayName,
   updateProfile,
@@ -45,7 +47,12 @@ import {
 import { supabase } from '@/lib/supabase';
 import { DashboardFoodItem, DashboardTab, FoodSummaryStats } from '@/types/food';
 
-const DIETARY_OPTIONS = ['Vegetarian', 'Non-Vegetarian', 'Vegan', 'Not Set'];
+const DIETARY_OPTIONS: { label: string; value: DietaryPreference }[] = [
+  { label: 'Vegetarian', value: 'vegetarian' },
+  { label: 'Non-Vegetarian', value: 'non_vegetarian' },
+  { label: 'Vegan', value: 'vegan' },
+  { label: 'Not Set', value: 'not_set' },
+];
 const ALLERGY_OPTIONS = ['Peanuts', 'Milk', 'Eggs', 'Gluten', 'Soy', 'Shellfish'];
 const CUISINE_OPTIONS = ['Sri Lankan', 'Indian', 'Chinese', 'Italian'];
 
@@ -72,7 +79,10 @@ export default function FreshLineHomeScreen() {
   // Modals & Feedback State
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toast, setToast] = useState<{
+    message: string;
+    type: 'success' | 'error' | 'info';
+  } | null>(null);
 
   // Profile Settings State
   const [profileAvatar, setProfileAvatar] = useState<string | null>(null);
@@ -80,9 +90,10 @@ export default function FreshLineHomeScreen() {
   const [isSavingUsername, setIsSavingUsername] = useState(false);
   const [newPassword, setNewPassword] = useState('');
   const [isSavingPassword, setIsSavingPassword] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   // Food Preferences State
-  const [dietaryPreference, setDietaryPreference] = useState('');
+  const [dietaryPreference, setDietaryPreference] = useState<DietaryPreference>('not_set');
   const [selectedAllergies, setSelectedAllergies] = useState<string[]>([]);
   const [dislikedText, setDislikedText] = useState('');
   const [selectedCuisines, setSelectedCuisines] = useState<string[]>([]);
@@ -160,7 +171,14 @@ export default function FreshLineHomeScreen() {
             setProfileAvatar(data.avatar_url);
           }
 
-          const loadedDietary = data.dietary_preference || '';
+          const rawDietary = data.dietary_preference?.toLowerCase().trim();
+          const loadedDietary: DietaryPreference =
+            rawDietary === 'vegetarian' ||
+            rawDietary === 'non_vegetarian' ||
+            rawDietary === 'vegan' ||
+            rawDietary === 'not_set'
+              ? rawDietary
+              : 'not_set';
           const loadedAllergies = Array.isArray(data.allergies) ? data.allergies : [];
           const loadedDisliked = Array.isArray(data.disliked_ingredients)
             ? data.disliked_ingredients.join(', ')
@@ -284,7 +302,7 @@ export default function FreshLineHomeScreen() {
   const handleSaveUsername = async () => {
     const trimmed = newUsername.trim();
     if (!trimmed) {
-      Alert.alert('Username Required', 'Please enter a valid username.');
+      triggerToast('Please enter a valid username', 'error');
       return;
     }
     setIsSavingUsername(true);
@@ -292,17 +310,17 @@ export default function FreshLineHomeScreen() {
       await updateDisplayName(trimmed);
       setDatabaseDisplayName(trimmed);
       setNewUsername('');
-      triggerToast('Username updated!');
+      triggerToast('Username updated successfully!', 'success');
     } catch (err: any) {
-      Alert.alert('Error', err?.message || 'Could not update username');
+      triggerToast(err?.message || 'Could not update username', 'error');
     } finally {
       setIsSavingUsername(false);
     }
   };
 
   // Toggle dietary preference selection
-  const toggleDietaryPreference = (option: string) => {
-    setDietaryPreference((prev) => (prev === option ? '' : option));
+  const toggleDietaryPreference = (value: DietaryPreference) => {
+    setDietaryPreference((prev) => (prev === value ? 'not_set' : value));
     setHasPreferenceChanges(true);
   };
 
@@ -344,9 +362,9 @@ export default function FreshLineHomeScreen() {
 
       // Saved successfully -> disable button until next change
       setHasPreferenceChanges(false);
-      triggerToast('Food preferences saved successfully!');
+      triggerToast('Food preferences saved successfully!', 'success');
     } catch (err: any) {
-      Alert.alert('Error', err?.message || 'Could not save preferences');
+      triggerToast(err?.message || 'Could not save preferences', 'error');
     } finally {
       setIsSavingPreferences(false);
     }
@@ -354,8 +372,8 @@ export default function FreshLineHomeScreen() {
 
   // Change password
   const handleSavePassword = async () => {
-    if (newPassword.length < 6) {
-      Alert.alert('Password too short', 'Password must be at least 6 characters.');
+    if (!newPassword || newPassword.length < 6) {
+      triggerToast('Password must be at least 6 characters', 'error');
       return;
     }
     setIsSavingPassword(true);
@@ -365,20 +383,23 @@ export default function FreshLineHomeScreen() {
       });
       if (error) throw error;
       setNewPassword('');
-      triggerToast('Password updated!');
+      triggerToast('Password changed successfully!', 'success');
     } catch (err: any) {
-      Alert.alert('Error', err?.message || 'Could not update password');
+      triggerToast(err?.message || 'Could not update password', 'error');
     } finally {
       setIsSavingPassword(false);
     }
   };
 
-  // Show transient in-app toast
-  const triggerToast = (msg: string) => {
-    setToastMessage(msg);
+  // Show transient in-app toast notification
+  const triggerToast = (
+    message: string,
+    type: 'success' | 'error' | 'info' = 'success'
+  ) => {
+    setToast({ message, type });
     setTimeout(() => {
-      setToastMessage((current) => (current === msg ? null : current));
-    }, 2800);
+      setToast((current) => (current?.message === message ? null : current));
+    }, 3200);
   };
 
   // Mark food item as used/saved
@@ -730,11 +751,11 @@ export default function FreshLineHomeScreen() {
             <Text style={styles.preferenceLabel}>Dietary Preference</Text>
             <View style={styles.checkboxGrid}>
               {DIETARY_OPTIONS.map((option) => {
-                const isSelected = dietaryPreference === option;
+                const isSelected = dietaryPreference === option.value;
                 return (
                   <Pressable
-                    key={option}
-                    onPress={() => toggleDietaryPreference(option)}
+                    key={option.value}
+                    onPress={() => toggleDietaryPreference(option.value)}
                     style={styles.checkboxItem}>
                     <View
                       style={[
@@ -748,7 +769,7 @@ export default function FreshLineHomeScreen() {
                         styles.checkboxLabel,
                         isSelected && styles.checkboxLabelActive,
                       ]}>
-                      {option}
+                      {option.label}
                     </Text>
                   </Pressable>
                 );
@@ -864,14 +885,32 @@ export default function FreshLineHomeScreen() {
           {/* Change Password */}
           <View style={styles.settingsSectionCard}>
             <Text style={styles.sectionHeaderTitle}>Change Password</Text>
-            <TextInput
-              value={newPassword}
-              onChangeText={setNewPassword}
-              placeholder="Enter new password (min 6 characters)"
-              placeholderTextColor="#94A3B8"
-              secureTextEntry
-              style={styles.settingsInput}
-            />
+            <View style={styles.passwordInputWrapper}>
+              <TextInput
+                value={newPassword}
+                onChangeText={setNewPassword}
+                placeholder="Enter new password (min 6 characters)"
+                placeholderTextColor="#94A3B8"
+                secureTextEntry={!showPassword}
+                style={styles.passwordTextInput}
+              />
+              <Pressable
+                onPress={() => setShowPassword((prev) => !prev)}
+                accessibilityRole="button"
+                accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+                hitSlop={10}
+                style={styles.eyeBtn}>
+                <SymbolView
+                  name={{
+                    ios: showPassword ? 'eye' : 'eye.slash',
+                    android: showPassword ? 'visibility' : 'visibility_off',
+                    web: showPassword ? 'visibility' : 'visibility_off',
+                  }}
+                  size={20}
+                  tintColor="#64748B"
+                />
+              </Pressable>
+            </View>
             <Pressable
               onPress={handleSavePassword}
               disabled={isSavingPassword}
@@ -1035,10 +1074,25 @@ export default function FreshLineHomeScreen() {
         </Pressable>
       </Modal>
 
-      {/* In-app Toast Banner */}
-      {toastMessage && (
-        <View style={styles.toast}>
-          <Text style={styles.toastText}>{toastMessage}</Text>
+      {/* Professional In-App Toast Notification */}
+      {toast && (
+        <View
+          style={[
+            styles.toastContainer,
+            toast.type === 'error' && styles.toastContainerError,
+          ]}>
+          <View
+            style={[
+              styles.toastIconBox,
+              toast.type === 'error'
+                ? styles.toastIconBoxError
+                : styles.toastIconBoxSuccess,
+            ]}>
+            <Text style={styles.toastIconText}>
+              {toast.type === 'error' ? '✕' : '✓'}
+            </Text>
+          </View>
+          <Text style={styles.toastMessageText}>{toast.message}</Text>
         </View>
       )}
     </SafeAreaView>
@@ -1317,6 +1371,28 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8FAFC',
     marginBottom: 10,
   },
+  passwordInputWrapper: {
+    height: 44,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 8,
+    backgroundColor: '#F8FAFC',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    marginBottom: 10,
+  },
+  passwordTextInput: {
+    flex: 1,
+    height: '100%',
+    fontSize: 14,
+    color: '#0F172A',
+  },
+  eyeBtn: {
+    padding: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   saveBtn: {
     backgroundColor: '#16A34A',
     height: 40,
@@ -1502,20 +1578,53 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#FFFFFF',
   },
-  toast: {
+  toastContainer: {
     position: 'absolute',
-    top: Platform.OS === 'android' ? 36 : 54,
+    top: Platform.OS === 'android' ? 44 : 56,
     alignSelf: 'center',
-    backgroundColor: FreshTheme.colors.primaryDeep,
+    backgroundColor: '#0F172A',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
     paddingHorizontal: 16,
-    paddingVertical: 9,
-    borderRadius: FreshTheme.borderRadius.full,
+    borderRadius: 24,
     zIndex: 9999,
-    ...FreshTheme.shadows.floating,
+    gap: 10,
+    maxWidth: '92%',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    elevation: 8,
+    borderWidth: 1,
+    borderColor: '#334155',
   },
-  toastText: {
+  toastContainerError: {
+    borderColor: '#EF4444',
+  },
+  toastIconBox: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  toastIconBoxSuccess: {
+    backgroundColor: '#16A34A',
+  },
+  toastIconBoxError: {
+    backgroundColor: '#EF4444',
+  },
+  toastIconText: {
     color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '800',
+    lineHeight: 13,
+  },
+  toastMessageText: {
+    color: '#F8FAFC',
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '600',
+    flexShrink: 1,
   },
 });

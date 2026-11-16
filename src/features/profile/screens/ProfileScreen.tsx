@@ -14,7 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { FreshTheme } from '@/constants/freshline-theme';
 import { supabase } from '@/lib/supabase';
-import { ProfileScreenProps } from '../types/auth.types';
+import { ProfileScreenProps } from '@/features/auth/types/auth.types';
 
 
 // Extract initials
