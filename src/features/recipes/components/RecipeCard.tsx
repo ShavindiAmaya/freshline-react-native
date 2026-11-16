@@ -9,12 +9,7 @@ interface RecipeCardProps {
 }
 
 /**
- * RecipeCard displays a single recipe with live ingredient match calculations:
- * - Recipe name and category
- * - Cooking time in minutes
- * - Exact calculated match percentage and visual progress bar
- * - Urgent ingredients rescued banner (items with status 'use_today' or 'use_soon')
- * - Visual indication when all ingredients are available (Ready to Cook)
+ * Displays recipe details, ingredient match percentage, and cooking readiness.
  */
 export function RecipeCard({ matchResult, onPress }: RecipeCardProps) {
   const {

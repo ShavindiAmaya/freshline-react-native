@@ -8,10 +8,7 @@ interface IngredientMatchListProps {
 }
 
 /**
- * IngredientMatchList clearly shows the user which ingredients they already have
- * in their inventory versus which items they are missing.
- *
- * Handles empty states gracefully for both sections.
+ * Displays available and missing recipe ingredients.
  */
 export function IngredientMatchList({
   availableIngredients,
