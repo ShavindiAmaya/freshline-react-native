@@ -1,13 +1,14 @@
 import type { User } from '@supabase/supabase-js';
 import { Redirect, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Modal,
   Platform,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Switch,
@@ -26,7 +27,14 @@ import { ExpiringSoonList } from '@/components/dashboard/ExpiringSoonList';
 import { Header } from '@/components/dashboard/Header';
 import { ManageOptionsModal } from '@/components/dashboard/ManageOptionsModal';
 import { QuickActions } from '@/components/dashboard/QuickActions';
+import { RecipeDetailModal } from '@/components/dashboard/RecipeDetailModal';
 import { SummaryCards } from '@/components/dashboard/SummaryCards';
+
+import { PREDEFINED_RECIPES, Recipe } from '@/features/recipes/data/recipes';
+import {
+  calculateRecipeRecommendations,
+  RecipeRecommendation,
+} from '@/features/recipes/services/recipe.service';
 
 import { FreshTheme } from '@/constants/freshline-theme';
 import {
@@ -126,6 +134,13 @@ export default function FreshLineHomeScreen() {
     type: 'success' | 'error' | 'info';
   } | null>(null);
 
+  // Recipes State
+  const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
+  const [showAllRecipes, setShowAllRecipes] = useState(false);
+  const [recipeCategoryFilter, setRecipeCategoryFilter] = useState<
+    'All' | 'Breakfast' | 'Lunch' | 'Dinner' | 'Vegetarian'
+  >('All');
+
   // Profile Settings State
   const [profileAvatar, setProfileAvatar] = useState<string | null>(null);
   const [newUsername, setNewUsername] = useState('');
@@ -141,6 +156,33 @@ export default function FreshLineHomeScreen() {
   const [selectedCuisines, setSelectedCuisines] = useState<string[]>([]);
   const [isSavingPreferences, setIsSavingPreferences] = useState(false);
   const [hasPreferenceChanges, setHasPreferenceChanges] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // User profile preferences object for recipe recommendations
+  const userPreferences = useMemo(
+    () => ({
+      dietary_preference: dietaryPreference,
+      allergies: selectedAllergies,
+      disliked_ingredients: dislikedText
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean),
+      favorite_cuisines: selectedCuisines,
+    }),
+    [dietaryPreference, selectedAllergies, dislikedText, selectedCuisines]
+  );
+
+  // Dynamically calculate recommended recipes based on real inventory and preferences
+  const recommendedRecipes = useMemo(() => {
+    return calculateRecipeRecommendations(foodItems, userPreferences);
+  }, [foodItems, userPreferences]);
+
+  const activeRecommendation = useMemo(() => {
+    if (!selectedRecipe) return null;
+    return (
+      recommendedRecipes.find((r) => r.recipe.id === selectedRecipe.id) || null
+    );
+  }, [selectedRecipe, recommendedRecipes]);
 
   // Restore the saved session and listen for authentication changes.
   useEffect(() => {
@@ -179,83 +221,67 @@ export default function FreshLineHomeScreen() {
   }, []);
 
   // Load the signed-in user's profile from the shared Supabase profiles table.
-  useEffect(() => {
-    let isActive = true;
-
+  const loadDatabaseProfile = async () => {
     if (!authUser?.id) {
       setDatabaseDisplayName(null);
       setIsProfileLoading(false);
       setProfileLoadError(null);
-
-      return () => {
-        isActive = false;
-      };
+      return;
     }
 
-    const loadDatabaseProfile = async () => {
-      setIsProfileLoading(true);
-      setProfileLoadError(null);
+    setIsProfileLoading(true);
+    setProfileLoadError(null);
 
-      try {
-        const data = await getProfile();
+    try {
+      const data = await getProfile();
 
-        if (!isActive) return;
-
-        if (data) {
-          const name =
-            typeof data.display_name === 'string'
-              ? data.display_name.trim()
-              : '';
-
-          setDatabaseDisplayName(name || null);
-
-          if (data.avatar_url) {
-            setProfileAvatar(data.avatar_url);
-          }
-
-          const rawDietary = data.dietary_preference?.toLowerCase().trim();
-          const loadedDietary: DietaryPreference =
-            rawDietary === 'vegetarian' ||
-            rawDietary === 'non_vegetarian' ||
-            rawDietary === 'vegan' ||
-            rawDietary === 'not_set'
-              ? rawDietary
-              : 'not_set';
-          const loadedAllergies = Array.isArray(data.allergies) ? data.allergies : [];
-          const loadedDisliked = Array.isArray(data.disliked_ingredients)
-            ? data.disliked_ingredients.join(', ')
+      if (data) {
+        const name =
+          typeof data.display_name === 'string'
+            ? data.display_name.trim()
             : '';
-          const loadedCuisines = Array.isArray(data.favorite_cuisines)
-            ? data.favorite_cuisines
-            : [];
 
-          setDietaryPreference(loadedDietary);
-          setSelectedAllergies(loadedAllergies);
-          setDislikedText(loadedDisliked);
-          setSelectedCuisines(loadedCuisines);
-          setHasPreferenceChanges(false);
-        }
-      } catch (error) {
-        console.error('Failed to load database profile:', error);
+        setDatabaseDisplayName(name || null);
 
-        if (isActive) {
-          setDatabaseDisplayName(null);
-          setProfileLoadError(
-            'Could not load profile details. Showing account name instead.'
-          );
+        if (data.avatar_url) {
+          setProfileAvatar(data.avatar_url);
         }
-      } finally {
-        if (isActive) {
-          setIsProfileLoading(false);
-        }
+
+        const rawDietary = data.dietary_preference?.toLowerCase().trim();
+        const loadedDietary: DietaryPreference =
+          rawDietary === 'vegetarian' ||
+          rawDietary === 'non_vegetarian' ||
+          rawDietary === 'vegan' ||
+          rawDietary === 'not_set'
+            ? rawDietary
+            : 'not_set';
+        const loadedAllergies = Array.isArray(data.allergies) ? data.allergies : [];
+        const loadedDisliked = Array.isArray(data.disliked_ingredients)
+          ? data.disliked_ingredients.join(', ')
+          : '';
+        const loadedCuisines = Array.isArray(data.favorite_cuisines)
+          ? data.favorite_cuisines
+          : [];
+
+        setDietaryPreference(loadedDietary);
+        setSelectedAllergies(loadedAllergies);
+        setDislikedText(loadedDisliked);
+        setSelectedCuisines(loadedCuisines);
+        setHasPreferenceChanges(false);
       }
-    };
+    } catch (error) {
+      console.error('Failed to load database profile:', error);
+      setDatabaseDisplayName(null);
+      setProfileLoadError(
+        'Could not load profile details. Showing account name instead.'
+      );
+    } finally {
+      setIsProfileLoading(false);
+    }
+  };
 
+  useEffect(() => {
     void loadDatabaseProfile();
-
-    return () => {
-      isActive = false;
-    };
   }, [authUser?.id]);
 
   // Load food items and options from Supabase for the current user
@@ -802,11 +828,22 @@ export default function FreshLineHomeScreen() {
   const handleSelectTab = (tab: DashboardTab) => {
     setActiveTab(tab);
     if (tab === 'recipes') {
+      void loadInventoryData();
       triggerToast('🍳 Matching recipes for expiring items');
     } else if (tab === 'inventory') {
       triggerToast('📦 Viewing tracked food inventory');
     } else if (tab === 'insights') {
       triggerToast('📊 Food waste impact analytics');
+    }
+  };
+
+  // Pull to refresh handler
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await Promise.all([loadInventoryData(), loadDatabaseProfile()]);
+    } finally {
+      setIsRefreshing(false);
     }
   };
 
@@ -1218,58 +1255,203 @@ export default function FreshLineHomeScreen() {
     }
 
     if (activeTab === 'recipes') {
+      const filteredRecommendations = recommendedRecipes.filter((item) => {
+        const r = item.recipe;
+        if (recipeCategoryFilter === 'All') return true;
+        if (recipeCategoryFilter === 'Vegetarian') {
+          return r.dietaryType === 'Vegetarian' || r.dietaryType === 'Vegan';
+        }
+        return r.category === recipeCategoryFilter;
+      });
+
+      const displayedRecommendations = showAllRecipes
+        ? filteredRecommendations
+        : filteredRecommendations.slice(0, 4);
+
       return (
         <View style={styles.tabSectionWrapper}>
+          {/* Header */}
           <View style={styles.tabHeaderRow}>
             <View>
               <Text style={styles.tabTitle}>Smart Waste-Free Recipes</Text>
               <Text style={styles.tabSubtitle}>
-                Cook with your expiring Milk, Chicken & Tomatoes
+                {filteredRecommendations.length} recipes matched to your kitchen inventory
               </Text>
             </View>
           </View>
 
-          <View style={styles.recipesList}>
-            {[
-              {
-                title: 'Creamy Tomato & Chicken Skillet',
-                time: '25 mins',
-                rescues: 'Chicken (1d), Tomatoes (2d)',
-                tag: 'Save 2 items',
-                icon: '🥘',
-              },
-              {
-                title: 'Golden Milk Custard French Toast',
-                time: '15 mins',
-                rescues: 'Milk (0d), Eggs (10d)',
-                tag: 'Use Today priority',
-                icon: '🍞',
-              },
-              {
-                title: 'Farmhouse Garden Omelette',
-                time: '10 mins',
-                rescues: 'Eggs, Tomatoes',
-                tag: 'High protein',
-                icon: '🍳',
-              },
-            ].map((rec) => (
-              <View key={rec.title} style={styles.recipeCard}>
-                <View style={styles.recipeIconBox}>
-                  <Text style={styles.recipeIconText}>{rec.icon}</Text>
-                </View>
-                <View style={styles.recipeDetails}>
-                  <View style={styles.recipeTagPill}>
-                    <Text style={styles.recipeTagText}>{rec.tag}</Text>
-                  </View>
-                  <Text style={styles.recipeCardTitle}>{rec.title}</Text>
-                  <Text style={styles.recipeRescues}>
-                    🥬 Rescues: {rec.rescues}
-                  </Text>
-                  <Text style={styles.recipeTime}>⏱️ Ready in {rec.time}</Text>
-                </View>
-              </View>
-            ))}
-          </View>
+          {/* Category Filter Chips */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.recipeFilterScroll}
+            contentContainerStyle={styles.recipeFilterContainer}>
+            {(['All', 'Breakfast', 'Lunch', 'Dinner', 'Vegetarian'] as const).map(
+              (cat) => {
+                const isActive = recipeCategoryFilter === cat;
+                return (
+                  <Pressable
+                    key={cat}
+                    onPress={() => setRecipeCategoryFilter(cat)}
+                    style={[
+                      styles.recipeFilterChip,
+                      isActive && styles.recipeFilterChipActive,
+                    ]}>
+                    <Text
+                      style={[
+                        styles.recipeFilterText,
+                        isActive && styles.recipeFilterTextActive,
+                      ]}>
+                      {cat}
+                    </Text>
+                  </Pressable>
+                );
+              }
+            )}
+          </ScrollView>
+
+          {/* Recipes List */}
+          {displayedRecommendations.length === 0 ? (
+            <View style={styles.emptyRecCard}>
+              <Text style={styles.emptyRecText}>
+                No recipes matched your dietary preferences or allergies.
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.recipesList}>
+              {displayedRecommendations.map((item) => {
+                const rec = item.recipe;
+                const totalIngs = rec.keyIngredients.length;
+                const availCount = item.availableIngredients.length;
+                const hasExpiring = item.expiringIngredients.length > 0;
+
+                return (
+                  <Pressable
+                    key={rec.id}
+                    onPress={() => setSelectedRecipe(rec)}
+                    style={({ pressed }) => [
+                      styles.recipeCardModern,
+                      pressed && styles.recipeCardPressed,
+                    ]}>
+                    {/* Thumbnail Image */}
+                    <View style={styles.recipeImageWrapper}>
+                      <Image
+                        source={{ uri: rec.image }}
+                        style={styles.recipeThumbImage}
+                        contentFit="cover"
+                        transition={200}
+                      />
+                      <View style={styles.recipeIconTag}>
+                        <Text style={styles.recipeIconSmall}>{rec.icon}</Text>
+                      </View>
+                    </View>
+
+                    {/* Details */}
+                    <View style={styles.recipeInfoBox}>
+                      <View style={styles.recipeBadgeRow}>
+                        <View
+                          style={[
+                            styles.scoreBadgePill,
+                            {
+                              backgroundColor:
+                                item.matchScore >= 70
+                                  ? '#DCFCE7'
+                                  : item.matchScore >= 40
+                                  ? '#FEF3C7'
+                                  : '#F1F5F9',
+                            },
+                          ]}>
+                          <Text
+                            style={[
+                              styles.scoreBadgeText,
+                              {
+                                color:
+                                  item.matchScore >= 70
+                                    ? '#15803D'
+                                    : item.matchScore >= 40
+                                    ? '#B45309'
+                                    : '#64748B',
+                              },
+                            ]}>
+                            {item.matchScore}% Match
+                          </Text>
+                        </View>
+                        <View style={styles.recipeBadgePill}>
+                          <Text style={styles.recipeBadgeText}>{rec.badge}</Text>
+                        </View>
+                        <Text style={styles.recipeCategoryText}>{rec.category}</Text>
+                      </View>
+
+                      <Text style={styles.recipeTitleModern} numberOfLines={1}>
+                        {rec.name}
+                      </Text>
+
+                      {/* Stock availability */}
+                      <View style={styles.recipeStockRow}>
+                        <Text style={styles.recipeStockAvailable}>
+                          ✓ {availCount}/{totalIngs} in kitchen
+                        </Text>
+                        {item.missingIngredients.length > 0 && (
+                          <Text style={styles.recipeStockMissing}>
+                            • {item.missingIngredients.length} to buy
+                          </Text>
+                        )}
+                      </View>
+
+                      {availCount > 0 && (
+                        <Text style={styles.recipeMatchedText} numberOfLines={1}>
+                          In stock: {item.availableIngredients.join(', ')}
+                        </Text>
+                      )}
+
+                      {item.missingIngredients.length > 0 && (
+                        <Text style={styles.recipeMissingText} numberOfLines={1}>
+                          Missing: {item.missingIngredients.join(', ')}
+                        </Text>
+                      )}
+
+                      {hasExpiring && (
+                        <View style={styles.expiringRescueTag}>
+                          <Text style={styles.expiringRescueText} numberOfLines={1}>
+                            ⚡ Rescues: {item.expiringIngredients.join(', ')}
+                          </Text>
+                        </View>
+                      )}
+
+                      <View style={styles.recipeFooterRow}>
+                        <View style={styles.recipeTimeChip}>
+                          <Text style={styles.recipeTimeIcon}>⏱️</Text>
+                          <Text style={styles.recipeTimeText}>{rec.cookingTime}</Text>
+                        </View>
+                        <Text style={styles.viewRecipeLink}>View Recipe →</Text>
+                      </View>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
+
+          {/* View All Recipes Button */}
+          {!showAllRecipes && filteredRecommendations.length > 4 && (
+            <Pressable
+              onPress={() => setShowAllRecipes(true)}
+              style={styles.viewAllRecipesBtn}>
+              <Text style={styles.viewAllRecipesBtnText}>
+                View All {filteredRecommendations.length} Recipes ↓
+              </Text>
+            </Pressable>
+          )}
+
+          {showAllRecipes && filteredRecommendations.length > 4 && (
+            <Pressable
+              onPress={() => setShowAllRecipes(false)}
+              style={styles.collapseRecipesBtn}>
+              <Text style={styles.collapseRecipesBtnText}>
+                Show Fewer Recipes ↑
+              </Text>
+            </Pressable>
+          )}
 
           {/* Existing Explore Screen Integration */}
           <Pressable
@@ -1647,6 +1829,129 @@ export default function FreshLineHomeScreen() {
           onPressItem={handlePressFoodItem}
           onPressViewAll={handleViewInventory}
         />
+
+        {/* 4. Smart Recipe Recommendations (Top 3) */}
+        <View style={styles.homeRecommendationsSection}>
+          <View style={styles.homeRecHeaderRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.homeRecSectionTitle}>
+                Smart Waste-Free Recipes
+              </Text>
+              <Text style={styles.homeRecSectionSubtitle}>
+                Matched from your inventory & expiring items
+              </Text>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setActiveTab('recipes')}
+              style={styles.viewAllRecipesLink}>
+              <Text style={styles.viewAllRecipesLinkText}>View All →</Text>
+            </Pressable>
+          </View>
+
+          {recommendedRecipes.length === 0 ? (
+            <View style={styles.emptyRecCard}>
+              <Text style={styles.emptyRecText}>
+                No recipes matched your dietary preferences or allergies.
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.homeRecList}>
+              {recommendedRecipes.slice(0, 3).map((item) => {
+                const rec = item.recipe;
+                const totalIngs = rec.keyIngredients.length;
+                const availCount = item.availableIngredients.length;
+                const hasExpiring = item.expiringIngredients.length > 0;
+
+                return (
+                  <Pressable
+                    key={rec.id}
+                    onPress={() => setSelectedRecipe(rec)}
+                    style={({ pressed }) => [
+                      styles.homeRecCard,
+                      pressed && styles.recipeCardPressed,
+                    ]}>
+                    <View style={styles.homeRecImageWrapper}>
+                      <Image
+                        source={{ uri: rec.image }}
+                        style={styles.homeRecThumbImage}
+                        contentFit="cover"
+                        transition={200}
+                      />
+                      <View style={styles.homeRecIconTag}>
+                        <Text style={styles.recipeIconSmall}>{rec.icon}</Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.homeRecInfo}>
+                      <View style={styles.homeRecBadgeRow}>
+                        <View
+                          style={[
+                            styles.scoreBadgePill,
+                            {
+                              backgroundColor:
+                                item.matchScore >= 70
+                                  ? '#DCFCE7'
+                                  : item.matchScore >= 40
+                                  ? '#FEF3C7'
+                                  : '#F1F5F9',
+                            },
+                          ]}>
+                          <Text
+                            style={[
+                              styles.scoreBadgeText,
+                              {
+                                color:
+                                  item.matchScore >= 70
+                                    ? '#15803D'
+                                    : item.matchScore >= 40
+                                    ? '#B45309'
+                                    : '#64748B',
+                              },
+                            ]}>
+                            {item.matchScore}% Match
+                          </Text>
+                        </View>
+                        <Text style={styles.homeRecTimeText}>⏱️ {rec.cookingTime}</Text>
+                      </View>
+
+                      <Text style={styles.homeRecTitle} numberOfLines={1}>
+                        {rec.name}
+                      </Text>
+
+                      {/* Available ingredients count */}
+                      <View style={styles.homeRecIngStatusRow}>
+                        <Text style={styles.homeRecAvailCount}>
+                          ✓ {availCount}/{totalIngs} ingredients ready
+                        </Text>
+                      </View>
+
+                      {/* Matching ingredients names */}
+                      {availCount > 0 ? (
+                        <Text style={styles.homeRecAvailNames} numberOfLines={1}>
+                          In stock: {item.availableIngredients.join(', ')}
+                        </Text>
+                      ) : (
+                        <Text style={styles.homeRecMissingNames} numberOfLines={1}>
+                          Need: {item.missingIngredients.slice(0, 3).join(', ')}
+                        </Text>
+                      )}
+
+                      {/* Expiring callout */}
+                      {hasExpiring && (
+                        <View style={styles.expiringRescueTag}>
+                          <Text style={styles.expiringRescueText} numberOfLines={1}>
+                            ⚡ Uses expiring: {item.expiringIngredients.join(', ')}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
+        </View>
       </>
     );
   };
@@ -1663,7 +1968,14 @@ export default function FreshLineHomeScreen() {
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}>
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={handleRefresh}
+            colors={[FreshTheme.colors.primary]}
+          />
+        }>
         {/* Header with FreshLine branding, greeting, avatar & notification */}
         <Header
           user={userProfile}
@@ -1812,6 +2124,21 @@ export default function FreshLineHomeScreen() {
         </Pressable>
       </Modal>
 
+      {/* Recipe Detail Modal */}
+      <RecipeDetailModal
+        visible={Boolean(selectedRecipe)}
+        recipe={selectedRecipe}
+        matchScore={activeRecommendation?.matchScore}
+        availableIngredients={activeRecommendation?.availableIngredients}
+        missingIngredients={activeRecommendation?.missingIngredients}
+        expiringIngredients={activeRecommendation?.expiringIngredients}
+        onClose={() => setSelectedRecipe(null)}
+        onCookRecipe={(rec) => {
+          setSelectedRecipe(null);
+          triggerToast(`🍳 Started cooking "${rec.name}"!`);
+        }}
+      />
+
       {/* Professional In-App Toast Notification */}
       {toast && (
         <View
@@ -1929,65 +2256,339 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: FreshTheme.colors.primaryDark,
   },
-  recipesList: {
-    gap: 10,
+  recipeFilterScroll: {
+    marginBottom: 14,
   },
-  recipeCard: {
+  recipeFilterContainer: {
+    gap: 8,
+    paddingVertical: 2,
+  },
+  recipeFilterChip: {
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  recipeFilterChipActive: {
+    backgroundColor: '#16A34A',
+    borderColor: '#16A34A',
+  },
+  recipeFilterText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  recipeFilterTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
+  recipesList: {
+    gap: 12,
+  },
+  recipeCardModern: {
     flexDirection: 'row',
     backgroundColor: '#FFFFFF',
-    borderRadius: FreshTheme.borderRadius.lg,
-    padding: FreshTheme.spacing.md,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: FreshTheme.colors.borderLight,
+    borderColor: '#E2E8F0',
+    padding: 12,
+    gap: 12,
     alignItems: 'center',
-    ...FreshTheme.shadows.card,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
   },
-  recipeIconBox: {
-    width: 48,
-    height: 48,
-    borderRadius: FreshTheme.borderRadius.md,
+  recipeCardPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.99 }],
+  },
+  recipeImageWrapper: {
+    width: 80,
+    height: 80,
+    borderRadius: 10,
+    overflow: 'hidden',
+    position: 'relative',
+    backgroundColor: '#F1F5F9',
+  },
+  recipeThumbImage: {
+    width: '100%',
+    height: '100%',
+  },
+  recipeIconTag: {
+    position: 'absolute',
+    bottom: 4,
+    right: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.92)',
+    borderRadius: 4,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+  },
+  recipeIconSmall: {
+    fontSize: 12,
+  },
+  recipeInfoBox: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  recipeBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  recipeBadgePill: {
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  recipeBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#15803D',
+  },
+  recipeCategoryText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#94A3B8',
+  },
+  recipeTitleModern: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0F172A',
+    marginBottom: 4,
+  },
+  recipeIngredientsPreview: {
+    fontSize: 12,
+    color: '#64748B',
+    marginBottom: 8,
+  },
+  recipeFooterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  recipeTimeChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  recipeTimeIcon: {
+    fontSize: 11,
+  },
+  recipeTimeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  viewRecipeLink: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#16A34A',
+  },
+  viewAllRecipesBtn: {
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1.5,
+    borderColor: '#86EFAC',
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginTop: 14,
+  },
+  viewAllRecipesBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#15803D',
+  },
+  collapseRecipesBtn: {
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+    marginTop: 14,
+  },
+  collapseRecipesBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  scoreBadgePill: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  scoreBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  recipeStockRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 3,
+  },
+  recipeStockAvailable: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#15803D',
+  },
+  recipeStockMissing: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  recipeMatchedText: {
+    fontSize: 11,
+    color: '#166534',
+    marginBottom: 2,
+  },
+  recipeMissingText: {
+    fontSize: 11,
+    color: '#64748B',
+    marginBottom: 4,
+  },
+  expiringRescueTag: {
     backgroundColor: '#FEF3C7',
     borderWidth: 1,
     borderColor: '#FDE68A',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  recipeIconText: {
-    fontSize: 24,
-  },
-  recipeDetails: {
-    flex: 1,
-  },
-  recipeTagPill: {
-    backgroundColor: FreshTheme.colors.primaryLight,
-    alignSelf: 'flex-start',
+    borderRadius: 4,
     paddingHorizontal: 6,
     paddingVertical: 2,
+    marginBottom: 6,
+    alignSelf: 'flex-start',
+  },
+  expiringRescueText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#B45309',
+  },
+  homeRecommendationsSection: {
+    marginTop: 22,
+    marginBottom: 10,
+  },
+  homeRecHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+  },
+  homeRecSectionTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  homeRecSectionSubtitle: {
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  viewAllRecipesLink: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  viewAllRecipesLinkText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#16A34A',
+  },
+  homeRecList: {
+    gap: 10,
+  },
+  homeRecCard: {
+    flexDirection: 'row',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 12,
+    gap: 12,
+    alignItems: 'center',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  homeRecImageWrapper: {
+    width: 72,
+    height: 72,
+    borderRadius: 10,
+    overflow: 'hidden',
+    position: 'relative',
+    backgroundColor: '#F1F5F9',
+  },
+  homeRecThumbImage: {
+    width: '100%',
+    height: '100%',
+  },
+  homeRecIconTag: {
+    position: 'absolute',
+    bottom: 2,
+    right: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.92)',
     borderRadius: 4,
-    marginBottom: 4,
+    paddingHorizontal: 3,
+    paddingVertical: 1,
   },
-  recipeTagText: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: FreshTheme.colors.primaryDark,
+  homeRecInfo: {
+    flex: 1,
   },
-  recipeCardTitle: {
+  homeRecBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 3,
+  },
+  homeRecTimeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  homeRecTitle: {
     fontSize: 14,
     fontWeight: '700',
-    color: FreshTheme.colors.textPrimary,
+    color: '#0F172A',
+    marginBottom: 2,
   },
-  recipeRescues: {
+  homeRecIngStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
+  homeRecAvailCount: {
     fontSize: 11,
-    fontWeight: '500',
-    color: FreshTheme.colors.primaryDark,
-    marginTop: 2,
+    fontWeight: '700',
+    color: '#15803D',
   },
-  recipeTime: {
-    fontSize: 10,
-    fontWeight: '500',
-    color: FreshTheme.colors.textMuted,
-    marginTop: 2,
+  homeRecAvailNames: {
+    fontSize: 11,
+    color: '#166534',
+    marginBottom: 3,
+  },
+  homeRecMissingNames: {
+    fontSize: 11,
+    color: '#64748B',
+    marginBottom: 3,
+  },
+  emptyRecCard: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 16,
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  emptyRecText: {
+    fontSize: 13,
+    color: '#64748B',
+    textAlign: 'center',
   },
   exploreLinkBtn: {
     backgroundColor: FreshTheme.colors.primarySubtle,
