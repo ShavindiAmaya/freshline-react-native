@@ -5,7 +5,7 @@ export const INITIAL_USER_PROFILE: UserProfile = {
   full_name: 'Alex Johnson',
   greeting_time: 'Good morning!',
   tagline: "Let's keep your food fresh.",
-  avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+  avatar_url: '',
   streak_days: 5,
 };
 

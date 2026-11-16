@@ -11,8 +11,10 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AddFoodModal } from '@/components/dashboard/AddFoodModal';
@@ -34,8 +36,18 @@ import {
   signOut,
   subscribeToAuthChanges,
 } from '@/features/auth/services/auth.service';
+import {
+  getProfile,
+  updateDisplayName,
+  updateProfile,
+  uploadAvatar,
+} from '@/features/profile/services/profile.service';
 import { supabase } from '@/lib/supabase';
 import { DashboardFoodItem, DashboardTab, FoodSummaryStats } from '@/types/food';
+
+const DIETARY_OPTIONS = ['Vegetarian', 'Non-Vegetarian', 'Vegan', 'Not Set'];
+const ALLERGY_OPTIONS = ['Peanuts', 'Milk', 'Eggs', 'Gluten', 'Soy', 'Shellfish'];
+const CUISINE_OPTIONS = ['Sri Lankan', 'Indian', 'Chinese', 'Italian'];
 
 export default function FreshLineHomeScreen() {
   const router = useRouter();
@@ -61,6 +73,21 @@ export default function FreshLineHomeScreen() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Profile Settings State
+  const [profileAvatar, setProfileAvatar] = useState<string | null>(null);
+  const [newUsername, setNewUsername] = useState('');
+  const [isSavingUsername, setIsSavingUsername] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [isSavingPassword, setIsSavingPassword] = useState(false);
+
+  // Food Preferences State
+  const [dietaryPreference, setDietaryPreference] = useState('');
+  const [selectedAllergies, setSelectedAllergies] = useState<string[]>([]);
+  const [dislikedText, setDislikedText] = useState('');
+  const [selectedCuisines, setSelectedCuisines] = useState<string[]>([]);
+  const [isSavingPreferences, setIsSavingPreferences] = useState(false);
+  const [hasPreferenceChanges, setHasPreferenceChanges] = useState(false);
 
   // Restore the saved session and listen for authentication changes.
   useEffect(() => {
@@ -117,29 +144,36 @@ export default function FreshLineHomeScreen() {
       setProfileLoadError(null);
 
       try {
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('display_name')
-          .eq('id', authUser.id)
-          .maybeSingle();
-
-        if (error) {
-          throw error;
-        }
+        const data = await getProfile();
 
         if (!isActive) return;
 
-        const name =
-          typeof data?.display_name === 'string'
-            ? data.display_name.trim()
+        if (data) {
+          const name =
+            typeof data.display_name === 'string'
+              ? data.display_name.trim()
+              : '';
+
+          setDatabaseDisplayName(name || null);
+
+          if (data.avatar_url) {
+            setProfileAvatar(data.avatar_url);
+          }
+
+          const loadedDietary = data.dietary_preference || '';
+          const loadedAllergies = Array.isArray(data.allergies) ? data.allergies : [];
+          const loadedDisliked = Array.isArray(data.disliked_ingredients)
+            ? data.disliked_ingredients.join(', ')
             : '';
+          const loadedCuisines = Array.isArray(data.favorite_cuisines)
+            ? data.favorite_cuisines
+            : [];
 
-        setDatabaseDisplayName(name || null);
-
-        if (!name) {
-          setProfileLoadError(
-            'Profile record not found. Showing account name instead.'
-          );
+          setDietaryPreference(loadedDietary);
+          setSelectedAllergies(loadedAllergies);
+          setDislikedText(loadedDisliked);
+          setSelectedCuisines(loadedCuisines);
+          setHasPreferenceChanges(false);
         }
       } catch (error) {
         console.error('Failed to load database profile:', error);
@@ -175,32 +209,169 @@ export default function FreshLineHomeScreen() {
       ? authUser.user_metadata.full_name.trim()
       : '';
 
-  const displayName =
+  const rawDisplayName =
     databaseDisplayName ||
     metadataDisplayName ||
     legacyFullName ||
     authUser?.email?.split('@')[0] ||
-    'FreshLine Member';
+    'Member';
+
+  // Capitalize first letter of name
+  const displayName =
+    rawDisplayName.trim().charAt(0).toUpperCase() + rawDisplayName.trim().slice(1);
 
   const userProfile = {
     ...INITIAL_USER_PROFILE,
     id: authUser?.id ?? INITIAL_USER_PROFILE.id,
     full_name: displayName,
+    avatar_url: profileAvatar || '',
   };
 
-  const userInitials = displayName
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part.charAt(0).toUpperCase())
-    .join('') || 'FL';
-
-  const isEmailVerified = Boolean(
-    authUser?.email_confirmed_at || (authUser as any)?.confirmed_at
-  );
   const memberSince = authUser?.created_at
-    ? new Date(authUser.created_at).toLocaleDateString()
-    : 'N/A';
+    ? new Date(authUser.created_at).toLocaleDateString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+      })
+    : 'Recently';
+
+  const lastSignIn = authUser?.last_sign_in_at
+    ? new Date(authUser.last_sign_in_at).toLocaleDateString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+      })
+    : 'Today';
+
+  // Pick profile photo from device/web
+  const handlePickImage = () => {
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.onchange = async (e: any) => {
+        const file = e.target.files?.[0];
+        if (file) {
+          try {
+            const ext = file.name?.split('.').pop() || 'png';
+            const url = await uploadAvatar(file, ext);
+            setProfileAvatar(url);
+            triggerToast('Profile photo updated!');
+          } catch (storageErr) {
+            const reader = new FileReader();
+            reader.onload = async (event) => {
+              if (event.target?.result) {
+                const dataUrl = event.target.result as string;
+                try {
+                  await uploadAvatar(dataUrl);
+                  setProfileAvatar(dataUrl);
+                  triggerToast('Profile photo updated!');
+                } catch {
+                  setProfileAvatar(dataUrl);
+                  triggerToast('Profile photo updated!');
+                }
+              }
+            };
+            reader.readAsDataURL(file);
+          }
+        }
+      };
+      input.click();
+    }
+  };
+
+  // Change username
+  const handleSaveUsername = async () => {
+    const trimmed = newUsername.trim();
+    if (!trimmed) {
+      Alert.alert('Username Required', 'Please enter a valid username.');
+      return;
+    }
+    setIsSavingUsername(true);
+    try {
+      await updateDisplayName(trimmed);
+      setDatabaseDisplayName(trimmed);
+      setNewUsername('');
+      triggerToast('Username updated!');
+    } catch (err: any) {
+      Alert.alert('Error', err?.message || 'Could not update username');
+    } finally {
+      setIsSavingUsername(false);
+    }
+  };
+
+  // Toggle dietary preference selection
+  const toggleDietaryPreference = (option: string) => {
+    setDietaryPreference((prev) => (prev === option ? '' : option));
+    setHasPreferenceChanges(true);
+  };
+
+  // Toggle allergy selection
+  const toggleAllergy = (allergy: string) => {
+    setSelectedAllergies((prev) =>
+      prev.includes(allergy)
+        ? prev.filter((item) => item !== allergy)
+        : [...prev, allergy]
+    );
+    setHasPreferenceChanges(true);
+  };
+
+  // Toggle cuisine selection
+  const toggleCuisine = (cuisine: string) => {
+    setSelectedCuisines((prev) =>
+      prev.includes(cuisine)
+        ? prev.filter((item) => item !== cuisine)
+        : [...prev, cuisine]
+    );
+    setHasPreferenceChanges(true);
+  };
+
+  // Save food preferences
+  const handleSavePreferences = async () => {
+    setIsSavingPreferences(true);
+    try {
+      const dislikedList = dislikedText
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+      await updateProfile({
+        dietary_preference: dietaryPreference,
+        allergies: selectedAllergies,
+        disliked_ingredients: dislikedList,
+        favorite_cuisines: selectedCuisines,
+      });
+
+      // Saved successfully -> disable button until next change
+      setHasPreferenceChanges(false);
+      triggerToast('Food preferences saved successfully!');
+    } catch (err: any) {
+      Alert.alert('Error', err?.message || 'Could not save preferences');
+    } finally {
+      setIsSavingPreferences(false);
+    }
+  };
+
+  // Change password
+  const handleSavePassword = async () => {
+    if (newPassword.length < 6) {
+      Alert.alert('Password too short', 'Password must be at least 6 characters.');
+      return;
+    }
+    setIsSavingPassword(true);
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+      if (error) throw error;
+      setNewPassword('');
+      triggerToast('Password updated!');
+    } catch (err: any) {
+      Alert.alert('Error', err?.message || 'Could not update password');
+    } finally {
+      setIsSavingPassword(false);
+    }
+  };
 
   // Show transient in-app toast
   const triggerToast = (msg: string) => {
@@ -505,91 +676,229 @@ export default function FreshLineHomeScreen() {
     if (activeTab === 'profile') {
       return (
         <View style={styles.tabSectionWrapper}>
+          {/* Header */}
           <View style={styles.tabHeaderRow}>
             <View>
-              <Text style={styles.tabTitle}>FreshLine Account</Text>
-              <Text style={styles.tabSubtitle}>
-                Your authenticated FreshLine profile
-              </Text>
+              <Text style={styles.tabTitle}>Account Settings</Text>
+              <Text style={styles.tabSubtitle}>Manage your profile and security</Text>
             </View>
           </View>
 
+          {/* Profile Card */}
           <View style={styles.profileCard}>
-            <View style={styles.profileAvatarLarge}>
-              <Text style={styles.profileAvatarLargeText}>{userInitials}</Text>
+            <View style={styles.avatarContainer}>
+              <Image
+                source={
+                  profileAvatar
+                    ? { uri: profileAvatar }
+                    : require('@/assets/images/default-avatar.png')
+                }
+                style={styles.profileAvatarImg}
+                contentFit="cover"
+              />
+              <Pressable onPress={handlePickImage} style={styles.changePhotoBtn}>
+                <Text style={styles.changePhotoBtnText}>📷 Change Photo</Text>
+              </Pressable>
             </View>
 
             <Text style={styles.profileNameLarge}>{displayName}</Text>
-            <Text style={styles.profileEmail}>
-              {authUser.email || 'No email registered'}
-            </Text>
+            <Text style={styles.profileEmail}>{authUser.email || 'No email registered'}</Text>
+          </View>
 
-            {isProfileLoading ? (
-              <View style={styles.profileStatusRow}>
-                <ActivityIndicator
-                  size="small"
-                  color={FreshTheme.colors.primary}
-                />
-                <Text style={styles.profileStatusText}>
-                  Loading profile details...
-                </Text>
-              </View>
-            ) : profileLoadError ? (
-              <Text style={styles.profileErrorText}>
-                {profileLoadError}
-              </Text>
-            ) : databaseDisplayName ? (
-              <Text style={styles.profileStatusText}>
-                Profile loaded from database
-              </Text>
-            ) : null}
+          {/* Account Summary */}
+          <View style={styles.settingsSectionCard}>
+            <Text style={styles.sectionHeaderTitle}>Account Summary</Text>
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Login Email</Text>
+              <Text style={styles.summaryValue}>{authUser.email || 'N/A'}</Text>
+            </View>
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Member Since</Text>
+              <Text style={styles.summaryValue}>{memberSince}</Text>
+            </View>
+            <View style={[styles.summaryRow, { borderBottomWidth: 0 }]}>
+              <Text style={styles.summaryLabel}>Last Sign In</Text>
+              <Text style={styles.summaryValue}>{lastSignIn}</Text>
+            </View>
+          </View>
 
-            <View style={styles.profileBadgeRow}>
-              <View style={styles.profilePill}>
-                <Text style={styles.profilePillText}>
-                  {isEmailVerified ? '✓ Email Verified' : 'Email Not Verified'}
-                </Text>
-              </View>
-              <View style={styles.profilePill}>
-                <Text style={styles.profilePillText}>
-                  Member since {memberSince}
-                </Text>
-              </View>
+          {/* Food Preferences */}
+          <View style={styles.settingsSectionCard}>
+            <Text style={styles.sectionHeaderTitle}>Food Preferences</Text>
+
+            {/* Dietary Preference */}
+            <Text style={styles.preferenceLabel}>Dietary Preference</Text>
+            <View style={styles.checkboxGrid}>
+              {DIETARY_OPTIONS.map((option) => {
+                const isSelected = dietaryPreference === option;
+                return (
+                  <Pressable
+                    key={option}
+                    onPress={() => toggleDietaryPreference(option)}
+                    style={styles.checkboxItem}>
+                    <View
+                      style={[
+                        styles.checkboxBox,
+                        isSelected && styles.checkboxBoxActive,
+                      ]}>
+                      {isSelected && <Text style={styles.checkmarkIcon}>✓</Text>}
+                    </View>
+                    <Text
+                      style={[
+                        styles.checkboxLabel,
+                        isSelected && styles.checkboxLabelActive,
+                      ]}>
+                      {option}
+                    </Text>
+                  </Pressable>
+                );
+              })}
             </View>
 
-            <View style={styles.dbStatusBox}>
-              <View style={styles.dbStatusDot} />
-              <Text style={styles.dbStatusText}>
-                Authenticated with Supabase
-              </Text>
+            {/* Allergies */}
+            <Text style={styles.preferenceLabel}>Allergies</Text>
+            <View style={styles.checkboxGrid}>
+              {ALLERGY_OPTIONS.map((allergy) => {
+                const isSelected = selectedAllergies.includes(allergy);
+                return (
+                  <Pressable
+                    key={allergy}
+                    onPress={() => toggleAllergy(allergy)}
+                    style={styles.checkboxItem}>
+                    <View
+                      style={[
+                        styles.checkboxBox,
+                        isSelected && styles.checkboxBoxActive,
+                      ]}>
+                      {isSelected && <Text style={styles.checkmarkIcon}>✓</Text>}
+                    </View>
+                    <Text
+                      style={[
+                        styles.checkboxLabel,
+                        isSelected && styles.checkboxLabelActive,
+                      ]}>
+                      {allergy}
+                    </Text>
+                  </Pressable>
+                );
+              })}
             </View>
 
+            {/* Disliked Ingredients */}
+            <Text style={styles.preferenceLabel}>Disliked Ingredients</Text>
+            <TextInput
+              value={dislikedText}
+              onChangeText={(text) => {
+                setDislikedText(text);
+                setHasPreferenceChanges(true);
+              }}
+              placeholder="e.g. mushrooms, onions, cilantro"
+              placeholderTextColor="#94A3B8"
+              style={styles.settingsInput}
+            />
+
+            {/* Favorite Food Types */}
+            <Text style={styles.preferenceLabel}>Favorite Food Types</Text>
+            <View style={styles.checkboxGrid}>
+              {CUISINE_OPTIONS.map((cuisine) => {
+                const isSelected = selectedCuisines.includes(cuisine);
+                return (
+                  <Pressable
+                    key={cuisine}
+                    onPress={() => toggleCuisine(cuisine)}
+                    style={styles.checkboxItem}>
+                    <View
+                      style={[
+                        styles.checkboxBox,
+                        isSelected && styles.checkboxBoxActive,
+                      ]}>
+                      {isSelected && <Text style={styles.checkmarkIcon}>✓</Text>}
+                    </View>
+                    <Text
+                      style={[
+                        styles.checkboxLabel,
+                        isSelected && styles.checkboxLabelActive,
+                      ]}>
+                      {cuisine}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            {/* Save Preferences Button */}
             <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Sign out of FreshLine"
-              accessibilityState={{ disabled: isSigningOut, busy: isSigningOut }}
-              disabled={isSigningOut}
-              onPress={handleSignOut}
-              style={({ pressed }) => [
-                styles.signOutButton,
-                isSigningOut && styles.signOutButtonDisabled,
-                pressed && !isSigningOut && styles.signOutButtonPressed,
-              ]}
-            >
-              {isSigningOut ? (
-                <View style={styles.signOutButtonContent}>
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                  <Text style={styles.signOutButtonText}>Signing out...</Text>
-                </View>
-              ) : (
-                <Text style={styles.signOutButtonText}>Sign Out</Text>
-              )}
+              onPress={handleSavePreferences}
+              disabled={!hasPreferenceChanges || isSavingPreferences}
+              style={[
+                styles.saveBtn,
+                { marginTop: 10 },
+                (!hasPreferenceChanges || isSavingPreferences) && styles.saveBtnDisabled,
+              ]}>
+              <Text style={styles.saveBtnText}>
+                {isSavingPreferences ? 'Saving...' : 'Save Preferences'}
+              </Text>
             </Pressable>
           </View>
 
+          {/* Change Username */}
+          <View style={styles.settingsSectionCard}>
+            <Text style={styles.sectionHeaderTitle}>Change Username</Text>
+            <TextInput
+              value={newUsername}
+              onChangeText={setNewUsername}
+              placeholder="Enter new username"
+              placeholderTextColor="#94A3B8"
+              style={styles.settingsInput}
+            />
+            <Pressable
+              onPress={handleSaveUsername}
+              disabled={isSavingUsername}
+              style={styles.saveBtn}>
+              <Text style={styles.saveBtnText}>
+                {isSavingUsername ? 'Saving...' : 'Save Username'}
+              </Text>
+            </Pressable>
+          </View>
+
+          {/* Change Password */}
+          <View style={styles.settingsSectionCard}>
+            <Text style={styles.sectionHeaderTitle}>Change Password</Text>
+            <TextInput
+              value={newPassword}
+              onChangeText={setNewPassword}
+              placeholder="Enter new password (min 6 characters)"
+              placeholderTextColor="#94A3B8"
+              secureTextEntry
+              style={styles.settingsInput}
+            />
+            <Pressable
+              onPress={handleSavePassword}
+              disabled={isSavingPassword}
+              style={styles.saveBtn}>
+              <Text style={styles.saveBtnText}>
+                {isSavingPassword ? 'Updating...' : 'Update Password'}
+              </Text>
+            </Pressable>
+          </View>
+
+          {/* Sign Out Button */}
           <Pressable
-            onPress={() => setActiveTab('home')}
-            style={styles.backHomeBtn}>
+            accessibilityRole="button"
+            disabled={isSigningOut}
+            onPress={handleSignOut}
+            style={({ pressed }) => [
+              styles.signOutButton,
+              isSigningOut && styles.signOutButtonDisabled,
+              pressed && !isSigningOut && styles.signOutButtonPressed,
+            ]}>
+            <Text style={styles.signOutButtonText}>
+              {isSigningOut ? 'Signing out...' : 'Sign Out'}
+            </Text>
+          </Pressable>
+
+          {/* Return to Dashboard */}
+          <Pressable onPress={() => setActiveTab('home')} style={styles.backHomeBtn}>
             <Text style={styles.backHomeBtnText}>← Return to Dashboard</Text>
           </Pressable>
         </View>
@@ -925,101 +1234,154 @@ const styles = StyleSheet.create({
   },
   profileCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: FreshTheme.borderRadius.xl,
-    padding: FreshTheme.spacing.xl,
+    borderRadius: 14,
+    padding: 20,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: FreshTheme.colors.borderLight,
-    ...FreshTheme.shadows.card,
+    borderColor: '#E2E8F0',
   },
-  profileAvatarLarge: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: FreshTheme.colors.primaryLight,
-    borderWidth: 3,
-    borderColor: FreshTheme.colors.primary,
+  avatarContainer: {
     alignItems: 'center',
-    justifyContent: 'center',
     marginBottom: 10,
   },
-  profileAvatarLargeText: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: FreshTheme.colors.primaryDark,
+  profileAvatarImg: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    borderWidth: 2,
+    borderColor: '#16A34A',
+  },
+  changePhotoBtn: {
+    marginTop: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 14,
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#DCFCE7',
+  },
+  changePhotoBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#15803D',
   },
   profileNameLarge: {
     fontSize: 18,
-    fontWeight: '800',
-    color: FreshTheme.colors.textPrimary,
+    fontWeight: '700',
+    color: '#0F172A',
   },
   profileEmail: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: FreshTheme.colors.textMuted,
+    fontSize: 13,
+    color: '#64748B',
     marginTop: 2,
   },
-  profileStatusRow: {
+  settingsSectionCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    padding: 16,
+    marginTop: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  sectionHeaderTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0F172A',
+    marginBottom: 12,
+  },
+  summaryRow: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  summaryLabel: {
+    fontSize: 13,
+    color: '#64748B',
+  },
+  summaryValue: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#0F172A',
+  },
+  settingsInput: {
+    height: 44,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    fontSize: 14,
+    color: '#0F172A',
+    backgroundColor: '#F8FAFC',
+    marginBottom: 10,
+  },
+  saveBtn: {
+    backgroundColor: '#16A34A',
+    height: 40,
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
-    marginTop: 8,
   },
-  profileStatusText: {
-    fontSize: 11,
-    color: FreshTheme.colors.textSecondary,
-    textAlign: 'center',
-    marginTop: 8,
+  saveBtnDisabled: {
+    backgroundColor: '#94A3B8',
+    opacity: 0.6,
   },
-  profileErrorText: {
-    fontSize: 11,
-    color: '#B45309',
-    textAlign: 'center',
-    marginTop: 8,
+  saveBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '600',
   },
-  profileBadgeRow: {
+  preferenceLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#334155',
+    marginTop: 10,
+    marginBottom: 8,
+  },
+  checkboxGrid: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginTop: 2,
+    marginBottom: 8,
+  },
+  checkboxItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minWidth: 140,
+    paddingVertical: 5,
     gap: 8,
-    marginTop: 12,
-    marginBottom: 16,
   },
-  profilePill: {
-    backgroundColor: FreshTheme.colors.primarySubtle,
-    borderWidth: 1,
-    borderColor: FreshTheme.colors.primaryBorder,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: FreshTheme.borderRadius.full,
-  },
-  profilePillText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: FreshTheme.colors.primaryDark,
-  },
-  dbStatusBox: {
-    flexDirection: 'row',
+  checkboxBox: {
+    width: 18,
+    height: 18,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    borderColor: '#94A3B8',
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
-    gap: 6,
-    backgroundColor: '#FFFBEB',
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderRadius: FreshTheme.borderRadius.md,
-    borderWidth: 1,
-    borderColor: '#FDE68A',
-    width: '100%',
     justifyContent: 'center',
   },
-  dbStatusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#D97706',
+  checkboxBoxActive: {
+    borderColor: '#16A34A',
+    backgroundColor: '#16A34A',
   },
-  dbStatusText: {
+  checkmarkIcon: {
+    color: '#FFFFFF',
     fontSize: 11,
-    fontWeight: '700',
-    color: '#92400E',
+    fontWeight: '800',
+    lineHeight: 13,
+  },
+  checkboxLabel: {
+    fontSize: 13,
+    color: '#334155',
+    fontWeight: '500',
+  },
+  checkboxLabelActive: {
+    color: '#0F172A',
+    fontWeight: '600',
   },
   signOutButton: {
     width: '100%',

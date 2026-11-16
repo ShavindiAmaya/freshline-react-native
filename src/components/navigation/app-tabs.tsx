@@ -1,5 +1,5 @@
+// App navigation tabs for native platforms
 import { NativeTabs } from 'expo-router/native-tabs';
-
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
