@@ -1,8 +1,6 @@
+
 /**
- * Recipe types for FreshLine (Member D - Cook What I Have)
- *
- * Kept local to src/features/recipes/ to comply with the team rule:
- * "Write only in your owned feature folder, do not modify shared types".
+ * Defines the types used in the FreshLine Recipes feature.
  */
 
 export interface Recipe {

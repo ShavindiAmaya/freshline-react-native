@@ -1,14 +1,9 @@
 import { Recipe } from '../types/recipe.types';
 
 /**
- * Curated list of beginner-friendly recipes for FreshLine MVP.
- *
- * Designed to use common household pantry and fridge staples:
- * Chicken, Eggs, Tomatoes, Onion, Milk, Pasta, etc.
- *
- * Ingredients use singular, standard naming (e.g. "Egg", "Tomato")
- * so the matching service can reliably match items regardless of plural forms.
+ * Stores simple recipes using common household ingredients.
  */
+
 export const recipes: Recipe[] = [
   {
     id: 'recipe_1',
