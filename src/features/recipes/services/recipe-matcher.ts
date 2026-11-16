@@ -81,10 +81,7 @@ function doesIngredientMatchFood(recipeIngredient: string, foodItemName: string)
 }
 
 /**
- * Matches a single recipe against the user's available food inventory.
- *
- * Excludes used and expired food items, calculates match percentage,
- * lists available and missing ingredients, and identifies urgent items rescued.
+ * Matches a recipe with available food items and identifies missing ingredients.
  */
 export function matchRecipe(recipe: Recipe, foodItems: FoodItem[]): RecipeMatchResult {
   // Filter for only usable (non-used, non-expired) items
@@ -135,12 +132,7 @@ export function matchRecipe(recipe: Recipe, foodItems: FoodItem[]): RecipeMatchR
 }
 
 /**
- * Matches and ranks multiple recipes against the user's food inventory.
- *
- * Ranking criteria:
- * 1. Primary: Number of urgent (use_today / use_soon) ingredients rescued (highest first)
- * 2. Secondary: Match percentage (highest first)
- * 3. Tie-breaker: Alphabetical recipe name
+ * Matches and ranks recipes by urgent ingredients rescued and match percentage.
  */
 export function matchRecipes(
   foodItems: FoodItem[],
