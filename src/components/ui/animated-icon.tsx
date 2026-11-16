@@ -1,3 +1,4 @@
+// Animated splash and icon for native
 import { Image } from 'expo-image';
 import * as SplashScreen from 'expo-splash-screen';
 import { useState } from 'react';
@@ -8,6 +9,7 @@ import { scheduleOnRN } from 'react-native-worklets';
 const INITIAL_SCALE_FACTOR = Dimensions.get('screen').height / 90;
 const DURATION = 600;
 
+// Splash overlay component
 export function AnimatedSplashOverlay() {
   const [animate, setAnimate] = useState(false);
   const [visible, setVisible] = useState(true);
@@ -15,22 +17,10 @@ export function AnimatedSplashOverlay() {
   if (!visible) return null;
 
   const splashKeyframe = new Keyframe({
-    0: {
-      transform: [{ scale: 1 }],
-      opacity: 1,
-    },
-    20: {
-      opacity: 1,
-    },
-    70: {
-      opacity: 0,
-      easing: Easing.elastic(0.7),
-    },
-    100: {
-      opacity: 0,
-      transform: [{ scale: 1 }],
-      easing: Easing.elastic(0.7),
-    },
+    0: { transform: [{ scale: 1 }], opacity: 1 },
+    20: { opacity: 1 },
+    70: { opacity: 0, easing: Easing.elastic(0.7) },
+    100: { opacity: 0, transform: [{ scale: 1 }], easing: Easing.elastic(0.7) },
   });
 
   const image = <Image style={styles.image} source={require('@/assets/images/expo-logo.png')} />;
@@ -60,41 +50,22 @@ export function AnimatedSplashOverlay() {
 }
 
 const keyframe = new Keyframe({
-  0: {
-    transform: [{ scale: INITIAL_SCALE_FACTOR }],
-  },
-  100: {
-    transform: [{ scale: 1 }],
-    easing: Easing.elastic(0.7),
-  },
+  0: { transform: [{ scale: INITIAL_SCALE_FACTOR }] },
+  100: { transform: [{ scale: 1 }], easing: Easing.elastic(0.7) },
 });
 
 const logoKeyframe = new Keyframe({
-  0: {
-    transform: [{ scale: 1.3 }],
-    opacity: 0,
-  },
-  40: {
-    transform: [{ scale: 1.3 }],
-    opacity: 0,
-    easing: Easing.elastic(0.7),
-  },
-  100: {
-    opacity: 1,
-    transform: [{ scale: 1 }],
-    easing: Easing.elastic(0.7),
-  },
+  0: { transform: [{ scale: 1.3 }], opacity: 0 },
+  40: { transform: [{ scale: 1.3 }], opacity: 0, easing: Easing.elastic(0.7) },
+  100: { opacity: 1, transform: [{ scale: 1 }], easing: Easing.elastic(0.7) },
 });
 
 const glowKeyframe = new Keyframe({
-  0: {
-    transform: [{ rotateZ: '0deg' }],
-  },
-  100: {
-    transform: [{ rotateZ: '7200deg' }],
-  },
+  0: { transform: [{ rotateZ: '0deg' }] },
+  100: { transform: [{ rotateZ: '7200deg' }] },
 });
 
+// Animated logo icon
 export function AnimatedIcon() {
   return (
     <View style={styles.iconContainer}>

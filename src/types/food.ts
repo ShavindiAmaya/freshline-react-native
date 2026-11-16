@@ -1,11 +1,4 @@
-/**
- * FreshLine Shared Food Types
- * Used by Inventory, Expiry, Recipes and Dashboard.
- */
-
-// =====================================================
-// SHARED TYPES - Used by all team members
-// =====================================================
+//  SHARED TYPES - Used by all team members
 
 export type ExpiryStatus =
   | 'Use Today'
@@ -34,7 +27,6 @@ export interface FoodItem {
 }
 
 // Fields needed when adding or editing a food item.
-// No id, userId or status: status is derived from expiryDate.
 export interface FoodInput {
   name: string;
   category: string;
@@ -45,12 +37,7 @@ export interface FoodInput {
   storageLocation: StorageLocation;
 }
 
-// =====================================================
-// LEGACY DASHBOARD TYPES - Existing demo UI only
-// Keep these until the dashboard is connected to
-// the shared FoodItem model.
-// =====================================================
-
+// LEGACY DASHBOARD TYPES 
 export type DashboardFoodCategory =
   | 'dairy'
   | 'meat'
@@ -90,10 +77,7 @@ export interface DashboardFoodItem {
   updated_at?: string;
 }
 
-// =====================================================
 // EXISTING DASHBOARD SUPPORT TYPES
-// =====================================================
-
 export interface FoodSummaryStats {
   total_items: number;
   expiring_soon: number;

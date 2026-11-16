@@ -25,19 +25,6 @@ import { supabase } from '@/lib/supabase';
 
 type VerificationStatus = 'verifying' | 'ready' | 'error';
 
-/**
- * FreshLine Password Recovery Screen
- *
- * Route: /auth-reset-password
- *
- * Handles:
- * 1. Extraction of PKCE authorization code from Expo Router query parameters.
- * 2. Exchange of code for a Supabase session via supabase.auth.exchangeCodeForSession(code).
- * 3. Graceful handling of missing, expired, and invalid reset codes.
- * 4. Password validation (min 6 characters, matching confirmation).
- * 5. Password update via updatePassword (supabase.auth.updateUser).
- * 6. Success confirmation and return to Login navigation.
- */
 export default function AuthResetPasswordRoute() {
   const params = useLocalSearchParams<{
     code?: string;

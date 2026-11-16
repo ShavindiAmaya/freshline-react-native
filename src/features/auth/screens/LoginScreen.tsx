@@ -9,7 +9,6 @@ import {
   Pressable,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { FreshTheme } from '@/constants/freshline-theme';
 import { AuthInput } from '../components/AuthInput';
 import { AuthButton } from '../components/AuthButton';
 import {
@@ -38,18 +37,17 @@ export function LoginScreen({
   const [errors, setErrors] = useState<LoginFormErrors>({});
   const [touched, setTouched] = useState<Record<string, boolean>>({});
 
+  // Input change handler
   const handleChange = (field: keyof LoginFormValues, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }));
-
-    // Real-time error clearing when user fixes input
     if (errors[field]) {
       setErrors((prev) => ({ ...prev, [field]: undefined }));
     }
   };
 
+  // Field blur validation
   const handleBlur = (field: keyof LoginFormValues) => {
     setTouched((prev) => ({ ...prev, [field]: true }));
-
     if (field === 'email') {
       const emailErr = validateEmail(form.email);
       if (emailErr) setErrors((prev) => ({ ...prev, email: emailErr }));
@@ -59,16 +57,14 @@ export function LoginScreen({
     }
   };
 
+  // Form submit handler
   const handleSubmit = () => {
-    // Validate all fields
     const validation = validateLoginForm(form);
     if (!validation.isValid) {
       setErrors(validation.errors);
       setTouched({ email: true, password: true });
       return;
     }
-
-    // Pass valid form values to consumer callback
     onLogin?.(form);
   };
 
@@ -82,18 +78,16 @@ export function LoginScreen({
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled">
           <View style={styles.contentContainer}>
-            {/* Brand Header */}
+            {/* Header logo & brand */}
             <View style={styles.brandContainer}>
               <View style={styles.logoBadge}>
                 <Text style={styles.logoIcon}>🌱</Text>
               </View>
               <Text style={styles.brandName}>FreshLine</Text>
-              <Text style={styles.brandTagline}>
-                Track Freshness. Reduce Waste.
-              </Text>
+              <Text style={styles.brandTagline}>Track Freshness. Reduce Waste.</Text>
             </View>
 
-            {/* Welcome Heading */}
+            {/* Title & subtitle */}
             <View style={styles.headingContainer}>
               <Text style={styles.title}>Welcome back</Text>
               <Text style={styles.subtitle}>
@@ -101,22 +95,19 @@ export function LoginScreen({
               </Text>
             </View>
 
-            {/* Server Error Alert (if present) */}
+            {/* Server error banner */}
             {serverError && (
-              <View
-                style={styles.serverErrorBox}
-                accessibilityRole="alert"
-                accessibilityLiveRegion="assertive">
+              <View style={styles.serverErrorBox} accessibilityRole="alert">
                 <Text style={styles.serverErrorIcon}>⚠️</Text>
                 <Text style={styles.serverErrorText}>{serverError}</Text>
               </View>
             )}
 
-            {/* Form Fields */}
+            {/* Form inputs */}
             <View style={styles.formContainer}>
               <AuthInput
                 label="Email Address"
-                placeholder="you@example.com"
+                placeholder="your email address"
                 keyboardType="email-address"
                 autoCapitalize="none"
                 autoComplete="email"
@@ -125,8 +116,6 @@ export function LoginScreen({
                 onChangeText={(val) => handleChange('email', val)}
                 onBlur={() => handleBlur('email')}
                 error={touched.email ? errors.email : undefined}
-                accessibilityLabel="Email Address"
-                accessibilityHint="Enter your account email"
                 returnKeyType="next"
               />
 
@@ -139,43 +128,34 @@ export function LoginScreen({
                 onChangeText={(val) => handleChange('password', val)}
                 onBlur={() => handleBlur('password')}
                 error={touched.password ? errors.password : undefined}
-                accessibilityLabel="Password"
-                accessibilityHint="Enter your account password"
                 returnKeyType="done"
                 onSubmitEditing={handleSubmit}
               />
 
-              {/* Forgot Password Link */}
+              {/* Forgot password */}
               {onForgotPassword && (
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel="Forgot Password"
                   onPress={onForgotPassword}
                   style={styles.forgotPasswordButton}>
-                  <Text style={styles.forgotPasswordText}>
-                    Forgot password?
-                  </Text>
+                  <Text style={styles.forgotPasswordText}>Forgot password?</Text>
                 </Pressable>
               )}
 
-              {/* Login Button */}
+              {/* Submit button */}
               <AuthButton
                 title="Log In"
                 onPress={handleSubmit}
                 loading={isLoading}
-                accessibilityLabel="Log in to FreshLine"
-                accessibilityHint="Submits login credentials"
                 style={styles.submitButton}
               />
             </View>
 
-            {/* Navigate to Register Footer */}
+            {/* Footer */}
             <View style={styles.footerRow}>
               <Text style={styles.footerText}>Don't have an account?</Text>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Sign up for FreshLine"
-                accessibilityHint="Navigates to the registration screen"
                 onPress={onNavigateToRegister}
                 style={({ pressed }) => [
                   styles.registerLinkButton,
@@ -191,6 +171,11 @@ export function LoginScreen({
   );
 }
 
+const fontStack = Platform.select({
+  web: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+  default: undefined,
+});
+
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
@@ -202,123 +187,126 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     justifyContent: 'center',
-    paddingHorizontal: FreshTheme.spacing.lg,
-    paddingVertical: FreshTheme.spacing.xl,
+    paddingHorizontal: 24,
+    paddingVertical: 32,
   },
   contentContainer: {
     width: '100%',
-    maxWidth: 440,
+    maxWidth: 400,
     alignSelf: 'center',
   },
   brandContainer: {
     alignItems: 'center',
-    marginBottom: FreshTheme.spacing.lg,
+    marginBottom: 20,
   },
   logoBadge: {
-    width: 64,
-    height: 64,
-    borderRadius: FreshTheme.borderRadius.xl,
-    backgroundColor: FreshTheme.colors.primaryLight,
-    borderWidth: 1.5,
-    borderColor: FreshTheme.colors.primaryBorder,
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#DCFCE7',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: FreshTheme.spacing.sm,
-    ...FreshTheme.shadows.soft,
+    marginBottom: 10,
   },
   logoIcon: {
-    fontSize: 32,
+    fontSize: 24,
   },
   brandName: {
-    fontSize: 26,
-    fontWeight: '800',
-    color: FreshTheme.colors.primaryDark,
-    letterSpacing: -0.5,
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#0F172A',
+    letterSpacing: -0.3,
+    fontFamily: fontStack,
   },
   brandTagline: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: FreshTheme.colors.textSecondary,
+    fontSize: 13,
+    fontWeight: '400',
+    color: '#64748B',
     marginTop: 2,
-    letterSpacing: 0.2,
+    fontFamily: fontStack,
   },
   headingContainer: {
-    marginBottom: FreshTheme.spacing.xl,
+    marginBottom: 20,
   },
   title: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: FreshTheme.colors.textPrimary,
-    letterSpacing: -0.4,
-    marginBottom: 6,
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#0F172A',
+    letterSpacing: -0.3,
+    marginBottom: 4,
+    fontFamily: fontStack,
   },
   subtitle: {
     fontSize: 14,
-    fontWeight: '500',
-    color: FreshTheme.colors.textSecondary,
+    fontWeight: '400',
+    color: '#64748B',
     lineHeight: 20,
+    fontFamily: fontStack,
   },
   serverErrorBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: FreshTheme.colors.useToday.badgeBg,
-    borderColor: FreshTheme.colors.useToday.badgeBorder,
-    borderWidth: 1.5,
-    padding: FreshTheme.spacing.md,
-    borderRadius: FreshTheme.borderRadius.md,
-    marginBottom: FreshTheme.spacing.md,
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
+    borderWidth: 1,
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
     gap: 8,
   },
   serverErrorIcon: {
-    fontSize: 16,
+    fontSize: 14,
   },
   serverErrorText: {
     fontSize: 13,
-    fontWeight: '600',
-    color: FreshTheme.colors.useToday.text,
+    fontWeight: '500',
+    color: '#DC2626',
     flex: 1,
-    lineHeight: 18,
+    fontFamily: fontStack,
   },
   formContainer: {
     width: '100%',
   },
   forgotPasswordButton: {
     alignSelf: 'flex-end',
-    marginBottom: FreshTheme.spacing.md,
+    marginBottom: 16,
     paddingVertical: 4,
   },
   forgotPasswordText: {
     fontSize: 13,
-    fontWeight: '700',
-    color: FreshTheme.colors.primary,
+    fontWeight: '600',
+    color: '#16A34A',
+    fontFamily: fontStack,
   },
   submitButton: {
-    marginTop: FreshTheme.spacing.xs,
-    marginBottom: FreshTheme.spacing.lg,
+    marginTop: 4,
+    marginBottom: 20,
   },
   footerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    paddingVertical: FreshTheme.spacing.sm,
+    paddingVertical: 8,
   },
   footerText: {
     fontSize: 14,
-    fontWeight: '500',
-    color: FreshTheme.colors.textSecondary,
+    color: '#64748B',
+    fontFamily: fontStack,
   },
   registerLinkButton: {
     paddingVertical: 4,
-    paddingHorizontal: 4,
+    paddingHorizontal: 2,
   },
   registerLinkText: {
     fontSize: 14,
-    fontWeight: '800',
-    color: FreshTheme.colors.primary,
+    fontWeight: '600',
+    color: '#16A34A',
+    fontFamily: fontStack,
   },
   linkPressed: {
     opacity: 0.65,
   },
 });
-

@@ -8,32 +8,14 @@ import {
   TextInputProps,
   Platform,
 } from 'react-native';
+import { SymbolView } from 'expo-symbols';
 import { FreshTheme } from '@/constants/freshline-theme';
 
 export interface AuthInputProps extends TextInputProps {
-  /**
-   * Label displayed above the input field.
-   */
   label: string;
-
-  /**
-   * Validation error message displayed below the input field.
-   */
   error?: string | null;
-
-  /**
-   * Whether this field is a password input with show/hide toggle.
-   */
   isPassword?: boolean;
-
-  /**
-   * Optional helper or instruction text shown when there is no error.
-   */
   helperText?: string;
-
-  /**
-   * Custom container style.
-   */
   containerStyle?: object;
 }
 
@@ -66,6 +48,7 @@ export const AuthInput = forwardRef<any, AuthInputProps>(
     const hasError = Boolean(error);
     const secureText = isPassword && !isPasswordVisible;
 
+    // Focus & blur handlers
     const handleFocus = (e: any) => {
       setIsFocused(true);
       onFocus?.(e);
@@ -76,24 +59,19 @@ export const AuthInput = forwardRef<any, AuthInputProps>(
       onBlur?.(e);
     };
 
+    // Toggle password view
     const togglePasswordVisibility = () => {
       setIsPasswordVisible((prev) => !prev);
     };
 
     return (
       <View style={[styles.container, containerStyle]}>
-        {/* Input Label */}
-        <Text
-          style={[
-            styles.label,
-            isFocused && styles.labelFocused,
-            hasError && styles.labelError,
-          ]}
-          accessibilityRole="text">
+        {/* Label */}
+        <Text style={[styles.label, isFocused && styles.labelFocused, hasError && styles.labelError]}>
           {label}
         </Text>
 
-        {/* Input Field Container */}
+        {/* Input box */}
         <View
           style={[
             styles.inputWrapper,
@@ -106,7 +84,7 @@ export const AuthInput = forwardRef<any, AuthInputProps>(
             value={value}
             onChangeText={onChangeText}
             placeholder={placeholder}
-            placeholderTextColor={FreshTheme.colors.textMuted}
+            placeholderTextColor="#94A3B8"
             keyboardType={keyboardType}
             autoCapitalize={autoCapitalize}
             autoCorrect={autoCorrect}
@@ -116,42 +94,34 @@ export const AuthInput = forwardRef<any, AuthInputProps>(
             onBlur={handleBlur}
             accessibilityLabel={accessibilityLabel || label}
             accessibilityHint={accessibilityHint}
-            aria-invalid={hasError}
-            style={[styles.input, isPassword && styles.inputWithToggle]}
+            style={styles.input}
             {...restProps}
           />
 
-          {/* Show / Hide Password Toggle */}
+          {/* Eye toggle button */}
           {isPassword && (
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={
-                isPasswordVisible ? 'Hide password' : 'Show password'
-              }
-              accessibilityHint="Toggles password visibility"
+              accessibilityLabel={isPasswordVisible ? 'Hide password' : 'Show password'}
               onPress={togglePasswordVisibility}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              style={({ pressed }) => [
-                styles.toggleButton,
-                pressed && styles.toggleButtonPressed,
-              ]}>
-              <Text style={styles.toggleIcon}>
-                {isPasswordVisible ? '👁️' : '🔒'}
-              </Text>
-              <Text style={styles.toggleText}>
-                {isPasswordVisible ? 'Hide' : 'Show'}
-              </Text>
+              hitSlop={10}
+              style={({ pressed }) => [styles.eyeButton, pressed && styles.eyeButtonPressed]}>
+              <SymbolView
+                name={{
+                  ios: isPasswordVisible ? 'eye' : 'eye.slash',
+                  android: isPasswordVisible ? 'visibility' : 'visibility_off',
+                  web: isPasswordVisible ? 'visibility' : 'visibility_off',
+                }}
+                size={20}
+                tintColor={isFocused ? FreshTheme.colors.primaryDark : '#64748B'}
+              />
             </Pressable>
           )}
         </View>
 
-        {/* Error or Helper Display */}
+        {/* Error message */}
         {hasError ? (
-          <View
-            style={styles.errorRow}
-            accessibilityRole="alert"
-            accessibilityLiveRegion="polite">
-            <Text style={styles.errorIcon}>⚠️</Text>
+          <View style={styles.errorRow}>
             <Text style={styles.errorText}>{error}</Text>
           </View>
         ) : helperText ? (
@@ -164,103 +134,80 @@ export const AuthInput = forwardRef<any, AuthInputProps>(
 
 AuthInput.displayName = 'AuthInput';
 
+const fontStack = Platform.select({
+  web: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+  default: undefined,
+});
+
 const styles = StyleSheet.create({
   container: {
-    marginBottom: FreshTheme.spacing.md,
+    marginBottom: 16,
     width: '100%',
   },
   label: {
     fontSize: 13,
-    fontWeight: '700',
-    color: FreshTheme.colors.textPrimary,
+    fontWeight: '600',
+    color: '#334155',
     marginBottom: 6,
-    letterSpacing: 0.2,
+    fontFamily: fontStack,
   },
   labelFocused: {
-    color: FreshTheme.colors.primaryDark,
+    color: '#15803D',
   },
   labelError: {
-    color: FreshTheme.colors.useToday.text,
+    color: '#DC2626',
   },
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: FreshTheme.colors.cardBg,
-    borderRadius: FreshTheme.borderRadius.lg,
-    borderWidth: 1.5,
-    borderColor: FreshTheme.colors.borderLight,
-    paddingHorizontal: FreshTheme.spacing.md,
-    minHeight: 52,
-    ...FreshTheme.shadows.soft,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingHorizontal: 12,
+    height: 48,
   },
   inputWrapperFocused: {
-    borderColor: FreshTheme.colors.primary,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 2,
+    borderColor: '#16A34A',
   },
   inputWrapperError: {
-    borderColor: FreshTheme.colors.useToday.badgeBorder,
-    backgroundColor: FreshTheme.colors.useToday.badgeBg,
-    borderWidth: 1.5,
+    borderColor: '#F87171',
+    backgroundColor: '#FEF2F2',
   },
   inputWrapperDisabled: {
     backgroundColor: '#F8FAFC',
-    borderColor: FreshTheme.colors.borderLight,
+    borderColor: '#E2E8F0',
     opacity: 0.7,
   },
   input: {
     flex: 1,
-    fontSize: 15,
-    fontWeight: '500',
-    color: FreshTheme.colors.textPrimary,
-    paddingVertical: Platform.OS === 'ios' ? 14 : 10,
-    paddingHorizontal: 0,
-  },
-  inputWithToggle: {
-    paddingRight: 8,
-  },
-  toggleButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 6,
-    paddingHorizontal: 8,
-    borderRadius: FreshTheme.borderRadius.sm,
-    backgroundColor: FreshTheme.colors.primarySubtle,
-    gap: 4,
-  },
-  toggleButtonPressed: {
-    opacity: 0.7,
-  },
-  toggleIcon: {
     fontSize: 14,
+    color: '#0F172A',
+    paddingVertical: 0,
+    fontFamily: fontStack,
   },
-  toggleText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: FreshTheme.colors.primaryDark,
+  eyeButton: {
+    padding: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  eyeButtonPressed: {
+    opacity: 0.5,
   },
   errorRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    marginTop: 6,
+    marginTop: 4,
     paddingHorizontal: 2,
-  },
-  errorIcon: {
-    fontSize: 12,
   },
   errorText: {
     fontSize: 12,
-    fontWeight: '600',
-    color: FreshTheme.colors.useToday.text,
-    flex: 1,
-    lineHeight: 16,
+    fontWeight: '500',
+    color: '#DC2626',
+    fontFamily: fontStack,
   },
   helperText: {
     fontSize: 12,
-    fontWeight: '500',
-    color: FreshTheme.colors.textMuted,
-    marginTop: 5,
-    paddingHorizontal: 2,
+    color: '#64748B',
+    marginTop: 4,
+    fontFamily: fontStack,
   },
 });

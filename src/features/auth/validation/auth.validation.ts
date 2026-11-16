@@ -1,9 +1,4 @@
-/**
- * Authentication Validation Utilities for FreshLine
- *
- * Provides pure validation functions and form validation runners
- * with clear, user-friendly error messages.
- */
+// Auth validation helpers
 
 import {
   LoginFormErrors,
@@ -12,13 +7,10 @@ import {
   RegisterFormValues,
 } from '../types/auth.types';
 
-// RFC 5322 compliant regex pattern for standard email validation
+// Email regex pattern
 const EMAIL_REGEX = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
 
-/**
- * Validates an email address.
- * @returns Error string if invalid, or null if valid.
- */
+// Validate email address
 export function validateEmail(email: string): string | null {
   const trimmed = email.trim();
   if (!trimmed) {
@@ -30,10 +22,7 @@ export function validateEmail(email: string): string | null {
   return null;
 }
 
-/**
- * Validates a password. Minimum 6 characters as required by Supabase auth.
- * @returns Error string if invalid, or null if valid.
- */
+// Validate password
 export function validatePassword(password: string): string | null {
   if (!password) {
     return 'Password is required.';
@@ -44,10 +33,7 @@ export function validatePassword(password: string): string | null {
   return null;
 }
 
-/**
- * Validates a user's full name.
- * @returns Error string if invalid, or null if valid.
- */
+// Validate full name
 export function validateFullName(fullName: string): string | null {
   const trimmed = fullName.trim();
   if (!trimmed) {
@@ -59,10 +45,7 @@ export function validateFullName(fullName: string): string | null {
   return null;
 }
 
-/**
- * Validates that confirmPassword matches password.
- * @returns Error string if invalid, or null if valid.
- */
+// Validate confirm password
 export function validateConfirmPassword(
   password: string,
   confirmPassword: string
@@ -76,9 +59,7 @@ export function validateConfirmPassword(
   return null;
 }
 
-/**
- * Validates the entire Login form.
- */
+// Validate login form
 export function validateLoginForm(values: LoginFormValues): {
   isValid: boolean;
   errors: LoginFormErrors;
@@ -101,9 +82,7 @@ export function validateLoginForm(values: LoginFormValues): {
   };
 }
 
-/**
- * Validates the entire Register form.
- */
+// Validate register form
 export function validateRegisterForm(values: RegisterFormValues): {
   isValid: boolean;
   errors: RegisterFormErrors;
@@ -138,4 +117,3 @@ export function validateRegisterForm(values: RegisterFormValues): {
     errors,
   };
 }
-
