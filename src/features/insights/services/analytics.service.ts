@@ -1,4 +1,12 @@
-import type { MonthlyAnalytics, WasteRecord } from '../types.local';
+import type { WasteRecord } from '@/types/waste';
+
+export interface MonthlyAnalytics {
+  consumedCount: number;
+  wastedCount: number;
+  totalCount: number;
+  wasteRate: number; // e.g. 23.076923...
+  mostWastedCategory: string | null;
+}
 
 /**
  * Parses a recordedAt string or Date into a Date object evaluated in local time.
