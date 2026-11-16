@@ -1,25 +1,23 @@
 import type { WasteRecord } from '@/types/waste';
 
-export interface MonthlyAnalytics {
+export interface MonthlyAnalytics {                     
   consumedCount: number;
   wastedCount: number;
   totalCount: number;
-  wasteRate: number; // e.g. 23.076923...
+  wasteRate: number; // e.g. 23.076...
   mostWastedCategory: string | null;
 }
 
-/**
- * Parses a recordedAt string or Date into a Date object evaluated in local time.
- * If a date-only string (YYYY-MM-DD) is provided, it avoids UTC-midnight shifts
- * by constructing a Date using local midnight (year, month - 1, day).
- */
+//Turns a date string into a Date using local time
+// "YYYY-MM-DD" reads as local midnight to avoid timezone shifts.
+
 export function parseRecordDate(dateInput: string | Date): Date {
   if (dateInput instanceof Date) {
     return dateInput;
   }
   if (typeof dateInput === 'string') {
     const trimmed = dateInput.trim();
-    // Handle date-only YYYY-MM-DD in local time
+    // Manage date-only YYYY-MM-DD in local time
     if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
       const parts = trimmed.split('-').map(Number);
       return new Date(parts[0], parts[1] - 1, parts[2]);
@@ -29,16 +27,14 @@ export function parseRecordDate(dateInput: string | Date): Date {
   return new Date(dateInput);
 }
 
-/**
- * Filters waste records strictly for the target month and year using LOCAL time.
- * Defaults to the current month if targetDate is omitted.
- */
+// Keeps only the records from the given month (default: this month)
+
 export function filterRecordsByMonth(
   records: WasteRecord[],
   targetDate: Date = new Date()
 ): WasteRecord[] {
   const targetYear = targetDate.getFullYear();
-  const targetMonth = targetDate.getMonth(); // 0-indexed in local time
+  const targetMonth = targetDate.getMonth(); // 0 = January
 
   return records.filter((record) => {
     const recordDate = parseRecordDate(record.recordedAt);
@@ -50,20 +46,13 @@ export function filterRecordsByMonth(
   });
 }
 
-/**
- * Rounds waste rate percentage to 1 decimal place.
- * e.g., 23.076923... -> 23.1, 0 -> 0
- */
+// Rounds to 1 decimal place (23.076 -> 23.1)
 export function roundWasteRate(wasteRate: number): number {
   return Math.round(wasteRate * 10) / 10;
 }
 
-/**
- * Calculates item counts, waste rate percentage, and most wasted category.
- *
- * NOTE: As required, calculations use discrete ITEM COUNTS (count of records)
- * to avoid adding different units (e.g., kg vs liters vs pieces) together.
- */
+// Counts consumed and wasted items, the waste rate and the most wasted category
+// We count items, not quantities, so different units are never added together
 export function calculateMonthlyAnalytics(records: WasteRecord[]): MonthlyAnalytics {
   let consumedCount = 0;
   let wastedCount = 0;
@@ -72,10 +61,10 @@ export function calculateMonthlyAnalytics(records: WasteRecord[]): MonthlyAnalyt
   for (const record of records) {
     if (record.outcome === 'Consumed') {
       consumedCount += 1;
-      // Consumed items NEVER touch wastedCategoryCounts
+      // Consumed items never touch wasted Category Counts
     } else if (record.outcome === 'Wasted') {
       wastedCount += 1;
-      // Track category frequency strictly from Wasted records
+      // Count categories from Wasted records only
       const cat = record.category ? record.category.trim() : 'Other';
       wastedCategoryCounts[cat] = (wastedCategoryCounts[cat] || 0) + 1;
     }
@@ -83,11 +72,10 @@ export function calculateMonthlyAnalytics(records: WasteRecord[]): MonthlyAnalyt
 
   const totalCount = consumedCount + wastedCount;
 
-  // Raw waste rate percentage: wasted / total * 100
-  // Safe guard: 0 totalCount evaluates to 0, never NaN
+ // Waste rate = wasted / total * 100 
   const wasteRate = totalCount > 0 ? (wastedCount / totalCount) * 100 : 0;
 
-  // Find the category with the highest wasted count strictly among Wasted records
+  // Category with the most wasted items
   let mostWastedCategory: string | null = null;
   let maxWastedCount = 0;
   for (const [category, count] of Object.entries(wastedCategoryCounts)) {

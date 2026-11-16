@@ -1,7 +1,5 @@
-/**
- * Automated Verification Script for FreshLine Insights Feature
- * Run with: node --experimental-strip-types src/features/insights/verify.js
- */
+// Test script for the Insights feature.
+// Run: node --experimental-strip-types src/features/insights/verify.js
 
 import {
   calculateMonthlyAnalytics,
@@ -37,7 +35,7 @@ console.log('====================================================');
 console.log('\n1. Checking analytics calculations:');
 
 const recordsSample = [
-  // 10 Consumed records under "Dairy" (proves Consumed NEVER affects most wasted category)
+  // 10 Consumed items in Dairy (they must not affect the most wasted category)
   ...Array.from({ length: 10 }, (_, i) => ({
     id: `c-${i}`,
     userId: 'u-1',
@@ -74,7 +72,7 @@ assert(
   'mostWastedCategory is Produce (2 Wasted Produce vs 1 Wasted Bakery; 10 Consumed Dairy did not affect it)'
 );
 
-// 0 records edge case
+// No records: everything must be 0 or null
 const zeroResult = calculateMonthlyAnalytics([]);
 assert(zeroResult.totalCount === 0, 'Zero records totalCount === 0');
 assert(zeroResult.wasteRate === 0, 'Zero records wasteRate === 0');
@@ -89,7 +87,7 @@ console.log('\n2. Checking month filter on recordedAt using LOCAL time:');
 
 const targetMonth = new Date(2026, 10, 15); // November 2026 in local time
 
-// Construct local time boundaries
+// Dates on the edges of November, in local time
 const novStart = new Date(2026, 10, 1, 0, 1, 0); // Nov 1 00:01 local
 const novEnd = new Date(2026, 10, 30, 23, 59, 0); // Nov 30 23:59 local
 const octEnd = new Date(2026, 9, 31, 23, 59, 59); // Oct 31 23:59 local

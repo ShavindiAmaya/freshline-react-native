@@ -17,11 +17,10 @@ import {
   roundWasteRate,
   type MonthlyAnalytics,
 } from '../services/analytics.service';
-import { listWasteRecords } from '../services/waste.service';
+import { listWasteRecords } from '../services/waste.service';  
 
-/**
- * Loads waste records from the database for the authenticated user.
- */
+// Loads waste records from the database for the authenticated user
+
 async function loadRecords(): Promise<WasteRecord[]> {
   return await listWasteRecords();
 }
@@ -42,7 +41,7 @@ export default function InsightsScreen() {
 
     try {
       const records = await loadRecords();
-      // Filter for current month and compute metrics
+      // Filter for current month's records and calculate the numbers
       const currentMonthRecords = filterRecordsByMonth(records, new Date());
       const computed = calculateMonthlyAnalytics(currentMonthRecords);
       setAnalytics(computed);
@@ -60,7 +59,7 @@ export default function InsightsScreen() {
     fetchInsights();
   }, [fetchInsights]);
 
-  // Loading state view
+  // Loading screen
   if (loading && !refreshing) {
     return (
       <View style={styles.centerContainer}>
@@ -70,7 +69,7 @@ export default function InsightsScreen() {
     );
   }
 
-  // Error state view
+  // Error screen with a retry button
   if (errorMessage) {
     return (
       <View style={styles.centerContainer}>

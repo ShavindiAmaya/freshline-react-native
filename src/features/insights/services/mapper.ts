@@ -1,8 +1,6 @@
 import type { FoodOutcome, WasteRecord } from '@/types/waste';
 
-/**
- * Shape of rows in the PostgreSQL public.waste_records table.
- */
+// One row of the waste_records table in Supabase
 export interface WasteRecordDbRow {
   id: string;
   user_id: string;
@@ -15,11 +13,9 @@ export interface WasteRecordDbRow {
   recorded_at: string;
 }
 
-/**
- * Maps Supabase snake_case database columns to camelCase WasteRecord properties.
- * food_item_id -> foodItemId, food_name -> foodName, recorded_at -> recordedAt, user_id -> userId
- * quantity is converted to number.
- */
+// Converts a database row into a WasteRecord 
+// quantity is turned into a number
+
 export function mapDbRowToWasteRecord(row: WasteRecordDbRow): WasteRecord {
   return {
     id: row.id,
