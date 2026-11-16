@@ -32,19 +32,7 @@ import {
 
 import { FreshTheme } from '@/constants/freshline-theme';
 
-/**
- * FreshLine Authentication Route
- *
- * Route: /auth-preview
- *
- * Features:
- * - Login
- * - Registration
- * - Email confirmation handling
- * - Forgot password
- * - Existing session restoration
- * - Redirect authenticated users to Dashboard
- */
+// Auth Preview Route
 
 export default function AuthPreviewRoute() {
   const [currentScreen, setCurrentScreen] = useState<'login' | 'register'>(
