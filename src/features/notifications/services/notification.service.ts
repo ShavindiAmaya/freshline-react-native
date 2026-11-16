@@ -118,7 +118,7 @@ export async function scheduleExpiryNotifications(
   userId: string,
   delaySeconds = 120
 ): Promise<void> {
-  if (Platform.OS === 'web' || item.isUsed || !userId || !item.expiryDate) {
+  if (Platform.OS === 'web' || item.isUsed || item.isWasted || !userId || !item.expiryDate) {
     return;
   }
 
@@ -226,9 +226,9 @@ export async function syncExpiryNotifications(
     const persistedState = await getPersistedState(userId);
     const scheduled = await Notifications.getAllScheduledNotificationsAsync();
 
-    // 1. Cancel pending notifications for items that were deleted or marked as used
+    // 1. Cancel pending notifications for items that were deleted, marked as used, or marked as wasted
     const activeItemIds = new Set(
-      items.filter((i) => !i.isUsed).map((i) => i.id)
+      items.filter((i) => !i.isUsed && !i.isWasted).map((i) => i.id)
     );
 
     for (const notif of scheduled) {
@@ -241,9 +241,9 @@ export async function syncExpiryNotifications(
       }
     }
 
-    // 2. Filter eligible items: not used, has expiry date, expiring in <= 3 days (including today & expired)
+    // 2. Filter eligible items: not used, not wasted, has expiry date, expiring in <= 3 days (including today & expired)
     const eligibleItems = items.filter((item) => {
-      if (item.isUsed || !item.expiryDate) return false;
+      if (item.isUsed || item.isWasted || !item.expiryDate) return false;
       const days = getDaysRemaining(item.expiryDate);
       return days <= 3;
     });

@@ -26,6 +26,8 @@ export interface FoodItem {
   createdAt: string;
   status: ExpiryStatus;
   isUsed?: boolean;
+  isWasted?: boolean;
+  actionDate?: string | null;
 }
 
 // Calculate days remaining from expiry date string
