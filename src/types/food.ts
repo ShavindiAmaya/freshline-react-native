@@ -1,12 +1,57 @@
 /**
- * Food Item Types for FreshLine
- * Designed to map cleanly to Supabase PostgreSQL schema:
- * - Table: `food_items`
- * - Table: `user_profiles`
- * - Table: `food_waste_logs`
+ * FreshLine Shared Food Types
+ * Used by Inventory, Expiry, Recipes and Dashboard.
  */
 
-export type FoodCategory =
+// =====================================================
+// SHARED TYPES - Used by all team members
+// =====================================================
+
+export type ExpiryStatus =
+  | 'Use Today'
+  | 'Use Soon'
+  | 'Fresh'
+  | 'Expired';
+
+export type StorageLocation =
+  | 'Fridge'
+  | 'Freezer'
+  | 'Pantry';
+
+// A complete food item returned from the database.
+export interface FoodItem {
+  id: string;
+  userId: string;
+  name: string;
+  category: string;
+  quantity: number;
+  unit: string;
+  purchaseDate: string;
+  expiryDate: string;
+  storageLocation: StorageLocation;
+  createdAt: string;
+  status: ExpiryStatus;
+}
+
+// Fields needed when adding or editing a food item.
+// No id, userId or status: status is derived from expiryDate.
+export interface FoodInput {
+  name: string;
+  category: string;
+  quantity: number;
+  unit: string;
+  purchaseDate: string;
+  expiryDate: string;
+  storageLocation: StorageLocation;
+}
+
+// =====================================================
+// LEGACY DASHBOARD TYPES - Existing demo UI only
+// Keep these until the dashboard is connected to
+// the shared FoodItem model.
+// =====================================================
+
+export type DashboardFoodCategory =
   | 'dairy'
   | 'meat'
   | 'produce'
@@ -16,21 +61,27 @@ export type FoodCategory =
   | 'beverages'
   | 'other';
 
-export type StorageLocation = 'fridge' | 'freezer' | 'pantry';
+export type DashboardStorageLocation =
+  | 'fridge'
+  | 'freezer'
+  | 'pantry';
 
-export type FreshnessStatus = 'use_today' | 'use_soon' | 'fresh';
+export type DashboardFreshnessStatus =
+  | 'use_today'
+  | 'use_soon'
+  | 'fresh';
 
-export interface FoodItem {
+export interface DashboardFoodItem {
   id: string;
   user_id?: string;
   name: string;
-  category: FoodCategory;
-  storage_location: StorageLocation;
+  category: DashboardFoodCategory;
+  storage_location: DashboardStorageLocation;
   quantity: number;
   unit: string;
   days_left: number;
-  expiry_date: string; // ISO 8601 string for Supabase timestamptz
-  status: FreshnessStatus;
+  expiry_date: string;
+  status: DashboardFreshnessStatus;
   status_label: 'Use Today' | 'Use Soon' | 'Fresh';
   icon: string;
   notes?: string;
@@ -38,6 +89,10 @@ export interface FoodItem {
   created_at: string;
   updated_at?: string;
 }
+
+// =====================================================
+// EXISTING DASHBOARD SUPPORT TYPES
+// =====================================================
 
 export interface FoodSummaryStats {
   total_items: number;
@@ -56,5 +111,9 @@ export interface UserProfile {
   streak_days: number;
 }
 
-export type DashboardTab = 'home' | 'inventory' | 'recipes' | 'insights' | 'profile';
-
+export type DashboardTab =
+  | 'home'
+  | 'inventory'
+  | 'recipes'
+  | 'insights'
+  | 'profile';

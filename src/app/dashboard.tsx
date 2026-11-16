@@ -29,7 +29,7 @@ import {
   INITIAL_SUMMARY_STATS,
   INITIAL_USER_PROFILE,
 } from '@/data/mock-food-data';
-import { DashboardTab, FoodItem, FoodSummaryStats } from '@/types/food';
+import { DashboardTab, DashboardFoodItem, FoodSummaryStats } from '@/types/food';
 import {
   getCurrentSession,
   subscribeToAuthChanges,
@@ -46,7 +46,7 @@ export default function FreshLineHomeScreen() {
 
   // Dashboard state
   const [activeTab, setActiveTab] = useState<DashboardTab>('home');
-  const [foodItems, setFoodItems] = useState<FoodItem[]>(INITIAL_FOOD_ITEMS);
+  const [foodItems, setFoodItems] = useState<DashboardFoodItem[]>(INITIAL_FOOD_ITEMS);
   const [stats, setStats] = useState<FoodSummaryStats>(INITIAL_SUMMARY_STATS);
 
   // Modals & Feedback State
@@ -157,8 +157,8 @@ export default function FreshLineHomeScreen() {
   };
 
   // Add new food item (Supabase INSERT simulation)
-  const handleAddFood = (newItem: Omit<FoodItem, 'id' | 'created_at'>) => {
-    const createdItem: FoodItem = {
+  const handleAddFood = (newItem: Omit<DashboardFoodItem, 'id' | 'created_at'>) => {
+    const createdItem: DashboardFoodItem = {
       ...newItem,
       id: `food_${Date.now()}`,
       created_at: new Date().toISOString(),
@@ -186,7 +186,7 @@ export default function FreshLineHomeScreen() {
     setActiveTab('recipes');
   };
 
-  const handlePressFoodItem = (item: FoodItem) => {
+  const handlePressFoodItem = (item: DashboardFoodItem) => {
     Alert.alert(
       `${item.icon} ${item.name}`,
       `Days Remaining: ${item.days_left} (${item.status_label})\nStorage: ${item.storage_location}\nCategory: ${item.category}\n\nStatus: Demo Data - Connection Pending`,

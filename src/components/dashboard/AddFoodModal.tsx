@@ -11,26 +11,26 @@ import {
   Platform,
 } from 'react-native';
 import { FreshTheme } from '@/constants/freshline-theme';
-import { FoodCategory, FoodItem, StorageLocation } from '@/types/food';
+import { DashboardFoodCategory, DashboardFoodItem, DashboardStorageLocation } from '@/types/food';
 
 interface AddFoodModalProps {
   visible: boolean;
   onClose: () => void;
-  onSave: (item: Omit<FoodItem, 'id' | 'created_at'>) => void;
+  onSave: (item: Omit<DashboardFoodItem, 'id' | 'created_at'>) => void;
 }
 
 const QUICK_PRESETS = [
-  { name: 'Strawberries', category: 'produce' as FoodCategory, icon: '🍓', days: 3, location: 'fridge' as StorageLocation },
-  { name: 'Avocado', category: 'produce' as FoodCategory, icon: '🥑', days: 2, location: 'pantry' as StorageLocation },
-  { name: 'Greek Yogurt', category: 'dairy' as FoodCategory, icon: '🥣', days: 5, location: 'fridge' as StorageLocation },
-  { name: 'Salmon Fillet', category: 'meat' as FoodCategory, icon: '🐟', days: 1, location: 'fridge' as StorageLocation },
-  { name: 'Sourdough Bread', category: 'bakery' as FoodCategory, icon: '🍞', days: 4, location: 'pantry' as StorageLocation },
+  { name: 'Strawberries', category: 'produce' as DashboardFoodCategory, icon: '🍓', days: 3, location: 'fridge' as DashboardStorageLocation },
+  { name: 'Avocado', category: 'produce' as DashboardFoodCategory, icon: '🥑', days: 2, location: 'pantry' as DashboardStorageLocation },
+  { name: 'Greek Yogurt', category: 'dairy' as DashboardFoodCategory, icon: '🥣', days: 5, location: 'fridge' as DashboardStorageLocation },
+  { name: 'Salmon Fillet', category: 'meat' as DashboardFoodCategory, icon: '🐟', days: 1, location: 'fridge' as DashboardStorageLocation },
+  { name: 'Sourdough Bread', category: 'bakery' as DashboardFoodCategory, icon: '🍞', days: 4, location: 'pantry' as DashboardStorageLocation },
 ];
 
 export function AddFoodModal({ visible, onClose, onSave }: AddFoodModalProps) {
   const [name, setName] = useState('');
   const [daysLeft, setDaysLeft] = useState('3');
-  const [location, setLocation] = useState<StorageLocation>('fridge');
+  const [location, setLocation] = useState<DashboardStorageLocation>('fridge');
   const [icon, setIcon] = useState('🥗');
 
   const handleApplyPreset = (preset: typeof QUICK_PRESETS[0]) => {
@@ -44,8 +44,8 @@ export function AddFoodModal({ visible, onClose, onSave }: AddFoodModalProps) {
     if (!name.trim()) return;
 
     const days = parseInt(daysLeft, 10) || 1;
-    let status: FoodItem['status'] = 'fresh';
-    let status_label: FoodItem['status_label'] = 'Fresh';
+    let status: DashboardFoodItem['status'] = 'fresh';
+    let status_label: DashboardFoodItem['status_label'] = 'Fresh';
 
     if (days === 0) {
       status = 'use_today';
@@ -181,7 +181,7 @@ export function AddFoodModal({ visible, onClose, onSave }: AddFoodModalProps) {
             {/* Storage Location */}
             <Text style={styles.fieldLabel}>Storage Location</Text>
             <View style={styles.locationRow}>
-              {(['fridge', 'freezer', 'pantry'] as StorageLocation[]).map((loc) => (
+              {(['fridge', 'freezer', 'pantry'] as DashboardStorageLocation[]).map((loc) => (
                 <Pressable
                   key={loc}
                   onPress={() => setLocation(loc)}
