@@ -16,9 +16,8 @@ import { FreshTheme } from '@/constants/freshline-theme';
 import { supabase } from '@/lib/supabase';
 import { ProfileScreenProps } from '../types/auth.types';
 
-/**
- * Extracts 1-2 uppercase initial characters from a full name or email.
- */
+
+// Extract initials
 function extractInitials(fullName?: string, email?: string): string {
   if (fullName && fullName.trim()) {
     const parts = fullName.trim().split(/\s+/);
@@ -37,9 +36,8 @@ function extractInitials(fullName?: string, email?: string): string {
   return 'FL';
 }
 
-/**
- * Formats an ISO 8601 date string into a user-friendly date format.
- */
+
+// Format date
 function formatDate(isoString?: string | null): string {
   if (!isoString) return 'N/A';
 
@@ -58,12 +56,7 @@ function formatDate(isoString?: string | null): string {
   }
 }
 
-/**
- * Professional reusable Profile Screen for FreshLine.
- *
- * Loads the authenticated user's profile from Supabase profiles table.
- * Uses Auth metadata as a fallback if the database profile is unavailable.
- */
+// Profile Screen
 export function ProfileScreen({
   user,
   onSignOut,
@@ -79,12 +72,7 @@ export function ProfileScreen({
     null
   );
 
-  /**
-   * Fetch the current authenticated user's profile.
-   *
-   * profiles.id references auth.users.id.
-   * RLS ensures users can only access their own profile.
-   */
+  // Load profile from Supabase
   useEffect(() => {
     let isActive = true;
 
@@ -142,10 +130,7 @@ export function ProfileScreen({
     };
   }, [user.id]);
 
-  /**
-   * Prefer the database display name.
-   * Fall back to Supabase Auth metadata when unavailable.
-   */
+  // Resolve display name
   const metadataDisplayName =
     typeof user.user_metadata?.display_name === 'string'
       ? user.user_metadata.display_name.trim()

@@ -6,58 +6,19 @@ import {
   StyleSheet,
   ViewStyle,
   TextStyle,
+  Platform,
 } from 'react-native';
-import { FreshTheme } from '@/constants/freshline-theme';
 
 export interface AuthButtonProps {
-  /**
-   * Button title text.
-   */
   title: string;
-
-  /**
-   * Action callback triggered on press.
-   */
   onPress: () => void | Promise<void>;
-
-  /**
-   * Shows a loading spinner and prevents repeated presses.
-   */
   loading?: boolean;
-
-  /**
-   * Disables user interaction.
-   */
   disabled?: boolean;
-
-  /**
-   * Visual variant: primary green (default) or secondary outline.
-   */
   variant?: 'primary' | 'outline' | 'subtle';
-
-  /**
-   * Custom container style.
-   */
   style?: ViewStyle;
-
-  /**
-   * Custom text style.
-   */
   textStyle?: TextStyle;
-
-  /**
-   * Accessibility label for screen readers.
-   */
   accessibilityLabel?: string;
-
-  /**
-   * Accessibility hint explaining what tapping the button does.
-   */
   accessibilityHint?: string;
-
-  /**
-   * Optional icon rendered before the title.
-   */
   icon?: React.ReactNode;
 }
 
@@ -86,20 +47,20 @@ export function AuthButton({
         return {
           container: styles.outlineContainer,
           text: styles.outlineText,
-          loaderColor: FreshTheme.colors.primary,
+          loaderColor: '#16A34A',
         };
       case 'subtle':
         return {
           container: styles.subtleContainer,
           text: styles.subtleText,
-          loaderColor: FreshTheme.colors.primaryDark,
+          loaderColor: '#15803D',
         };
       case 'primary':
       default:
         return {
           container: styles.primaryContainer,
           text: styles.primaryText,
-          loaderColor: FreshTheme.colors.textOnPrimary,
+          loaderColor: '#FFFFFF',
         };
     }
   };
@@ -143,55 +104,58 @@ export function AuthButton({
   );
 }
 
+const fontStack = Platform.select({
+  web: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+  default: undefined,
+});
+
 const styles = StyleSheet.create({
   baseButton: {
-    height: 52,
-    borderRadius: FreshTheme.borderRadius.lg,
+    height: 48,
+    borderRadius: 10,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: FreshTheme.spacing.lg,
+    paddingHorizontal: 16,
     width: '100%',
     gap: 8,
   },
   primaryContainer: {
-    backgroundColor: FreshTheme.colors.primary,
-    ...FreshTheme.shadows.card,
+    backgroundColor: '#16A34A',
   },
   outlineContainer: {
     backgroundColor: '#FFFFFF',
-    borderWidth: 1.5,
-    borderColor: FreshTheme.colors.primary,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   subtleContainer: {
-    backgroundColor: FreshTheme.colors.primarySubtle,
+    backgroundColor: '#F0FDF4',
     borderWidth: 1,
-    borderColor: FreshTheme.colors.primaryBorder,
+    borderColor: '#DCFCE7',
   },
   disabledButton: {
-    opacity: 0.55,
+    opacity: 0.6,
   },
   pressedButton: {
     opacity: 0.88,
-    transform: [{ scale: 0.985 }],
+    transform: [{ scale: 0.99 }],
   },
   baseText: {
     fontSize: 15,
-    fontWeight: '800',
-    letterSpacing: 0.2,
+    fontWeight: '600',
     textAlign: 'center',
+    fontFamily: fontStack,
   },
   primaryText: {
-    color: FreshTheme.colors.textOnPrimary,
+    color: '#FFFFFF',
   },
   outlineText: {
-    color: FreshTheme.colors.primary,
+    color: '#16A34A',
   },
   subtleText: {
-    color: FreshTheme.colors.primaryDark,
+    color: '#15803D',
   },
   indicator: {
     paddingVertical: 2,
   },
 });
-

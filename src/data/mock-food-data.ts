@@ -1,13 +1,5 @@
 import { DashboardFoodItem, FoodSummaryStats, UserProfile } from '@/types/food';
 
-/**
- * Mock Food Data for FreshLine
- *
- * Prepared for future Supabase PostgreSQL integration.
- * In production, these will be populated from:
- * `supabase.from('food_items').select('*').order('days_left', { ascending: true })`
- */
-
 export const INITIAL_USER_PROFILE: UserProfile = {
   id: 'usr_freshline_01',
   full_name: 'Alex Johnson',

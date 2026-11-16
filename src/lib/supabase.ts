@@ -20,18 +20,8 @@ if (!supabasePublishableKey) {
   );
 }
 
-/**
- * Shared Supabase Client for the FreshLine React Native Expo application.
- *
- * Configured with:
- * - AsyncStorage for native platforms (iOS / Android)
- * - Browser storage for web
- * - PKCE authentication flow
- * - Automatic token refresh
- * - Persistent sessions
- * - Manual URL code exchange for password recovery
- * - AppState listener to manage token refresh
- */
+
+//  Shared Supabase Client 
 
 export const supabase = createClient(
   supabaseUrl,
@@ -50,9 +40,15 @@ export const supabase = createClient(
 // Start auto-refresh when app becomes active,
 // pause when app moves to the background.
 AppState.addEventListener('change', (state) => {
-  if (state === 'active') {
-    supabase.auth.startAutoRefresh();
-  } else {
-    supabase.auth.stopAutoRefresh();
+
+  if (Platform.OS !== 'web') {
+    AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        supabase.auth.startAutoRefresh();
+      } else {
+        supabase.auth.stopAutoRefresh();
+      }
+    });
   }
+
 });
