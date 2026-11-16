@@ -37,9 +37,8 @@ const INGREDIENT_ALIASES: Record<string, string[]> = {
   spinach: ['spinach', 'spinach leaves', 'palak'],
 };
 
-/**
- * Checks whether an inventory item matches a recipe key ingredient.
- */
+//  Checks whether an inventory item matches a recipe key ingredient.
+
 export function isIngredientMatch(
   inventoryItemName: string,
   keyIngredient: string
@@ -74,7 +73,7 @@ export function calculateRecipeRecommendations(
 ): RecipeRecommendation[] {
   // 1. Filter active (non-used and non-expired) items
   const activeItems = (items || []).filter((item) => {
-    if (item.isUsed) return false;
+    if (item.isUsed || item.isWasted) return false;
     const days = getDaysRemaining(item.expiryDate);
     // Ignore expired items (daysRemaining < 0)
     return days >= 0;

@@ -16,6 +16,8 @@ function mapFoodItemRow(row: any): FoodItem {
     createdAt: row.created_at,
     status: calculateExpiryStatus(row.expiry_date),
     isUsed: Boolean(row.is_used),
+    isWasted: Boolean(row.is_wasted),
+    actionDate: row.action_date || null,
   };
 }
 
@@ -184,13 +186,32 @@ export async function markItemAsUsed(
       throw new Error('You must be logged in to update food items.');
     }
 
-    const { data, error } = await supabase
+    const payload: Record<string, any> = {
+      is_used: isUsed,
+      is_wasted: false,
+      action_date: isUsed ? new Date().toISOString() : null,
+    };
+
+    let { data, error } = await supabase
       .from('food_items')
-      .update({ is_used: isUsed })
+      .update(payload)
       .eq('id', id)
       .eq('user_id', user.id)
       .select()
       .single();
+
+    // Graceful fallback if is_wasted or action_date columns don't exist yet
+    if (error && (error.code === '42703' || error.message?.includes('column'))) {
+      const fallback = await supabase
+        .from('food_items')
+        .update({ is_used: isUsed })
+        .eq('id', id)
+        .eq('user_id', user.id)
+        .select()
+        .single();
+      data = fallback.data;
+      error = fallback.error;
+    }
 
     if (error) {
       console.error('markItemAsUsed Supabase error:', error.message, error.code);
@@ -200,6 +221,53 @@ export async function markItemAsUsed(
     return mapFoodItemRow(data);
   } catch (err: any) {
     console.error('markItemAsUsed error:', err.message);
+    throw err;
+  }
+}
+
+// 6. Mark food item as wasted/active
+export async function markItemAsWasted(
+  id: string,
+  isWasted: boolean
+): Promise<FoodItem> {
+  try {
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      console.error('markItemAsWasted auth error:', authError);
+      throw new Error('You must be logged in to update food items.');
+    }
+
+    const payload: Record<string, any> = {
+      is_wasted: isWasted,
+      is_used: false,
+      action_date: isWasted ? new Date().toISOString() : null,
+    };
+
+    const { data, error } = await supabase
+      .from('food_items')
+      .update(payload)
+      .eq('id', id)
+      .eq('user_id', user.id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('markItemAsWasted Supabase error:', error.message, error.code);
+      if (error.code === '42703' || error.message?.includes('column')) {
+        throw new Error(
+          'Missing "is_wasted" column in database. Please run the provided ALTER TABLE SQL in Supabase SQL editor.'
+        );
+      }
+      throw new Error(error.message || 'Failed to update item wasted status.');
+    }
+
+    return mapFoodItemRow(data);
+  } catch (err: any) {
+    console.error('markItemAsWasted error:', err.message);
     throw err;
   }
 }

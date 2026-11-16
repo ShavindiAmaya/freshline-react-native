@@ -71,73 +71,83 @@ export function ExpiringSoonList({
 
       {/* Items List */}
       <View style={styles.list}>
-        {items.map((item) => {
-          const days = getDaysRemaining(item.expiryDate);
-          const status = calculateExpiryStatus(item.expiryDate);
-          const badge = getBadgeStyle(status);
-          const isDone = item.isUsed;
+        {items.length === 0 ? (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyIcon}>🎉</Text>
+            <Text style={styles.emptyTitle}>All Fresh!</Text>
+            <Text style={styles.emptySubtitle}>
+              No items expiring today or tomorrow.
+            </Text>
+          </View>
+        ) : (
+          items.map((item) => {
+            const days = getDaysRemaining(item.expiryDate);
+            const status = calculateExpiryStatus(item.expiryDate);
+            const badge = getBadgeStyle(status);
+            const isDone = item.isUsed;
 
-          return (
-            <View
-              key={item.id}
-              style={[styles.itemCard, isDone && styles.itemCardUsed]}>
-              {/* Main Content Area */}
-              <Pressable
-                onPress={() => onPressItem?.(item)}
-                style={styles.cardContent}>
-                <View style={styles.nameRow}>
-                  <Text
-                    style={[styles.itemName, isDone && styles.itemNameUsed]}
-                    numberOfLines={1}>
-                    {item.name}
-                  </Text>
-                  {/* Natural Badge */}
-                  <View style={[styles.statusBadge, badge.container]}>
-                    <Text style={[styles.statusBadgeText, badge.text]}>
-                      {status}
+            return (
+              <View
+                key={item.id}
+                style={[styles.itemCard, isDone && styles.itemCardUsed]}>
+                {/* Main Content Area */}
+                <Pressable
+                  onPress={() => onPressItem?.(item)}
+                  style={styles.cardContent}>
+                  <View style={styles.nameRow}>
+                    <Text
+                      style={[styles.itemName, isDone && styles.itemNameUsed]}
+                      numberOfLines={1}>
+                      {item.name}
+                    </Text>
+                    {/* Natural Badge */}
+                    <View style={[styles.statusBadge, badge.container]}>
+                      <Text style={[styles.statusBadgeText, badge.text]}>
+                        {status}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Subtitle details */}
+                  <View style={styles.metaRow}>
+                    <Text style={styles.metaText}>
+                      {item.quantity} {item.unit}
+                    </Text>
+                    <Text style={styles.metaDivider}>•</Text>
+                    <Text style={styles.metaText}>{item.storageLocation}</Text>
+                    <Text style={styles.metaDivider}>•</Text>
+                    <Text
+                      style={[
+                        styles.daysText,
+                        days <= 2 && styles.daysTextUrgent,
+                      ]}>
+                      {formatDaysText(days)}
                     </Text>
                   </View>
-                </View>
+                </Pressable>
 
-                {/* Subtitle details */}
-                <View style={styles.metaRow}>
-                  <Text style={styles.metaText}>
-                    {item.quantity} {item.unit}
-                  </Text>
-                  <Text style={styles.metaDivider}>•</Text>
-                  <Text style={styles.metaText}>{item.storageLocation}</Text>
-                  <Text style={styles.metaDivider}>•</Text>
+                {/* Sibling Check Button (No Nested Pressable) */}
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Mark used"
+                  onPress={() => onToggleUsed?.(item.id)}
+                  hitSlop={8}
+                  style={[
+                    styles.checkButton,
+                    isDone && styles.checkButtonActive,
+                  ]}>
                   <Text
                     style={[
-                      styles.daysText,
-                      days <= 2 && styles.daysTextUrgent,
+                      styles.checkButtonText,
+                      isDone && styles.checkButtonTextActive,
                     ]}>
-                    {formatDaysText(days)}
+                    {isDone ? '✓' : '○'}
                   </Text>
-                </View>
-              </Pressable>
-
-              {/* Sibling Check Button (No Nested Pressable) */}
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Mark used"
-                onPress={() => onToggleUsed?.(item.id)}
-                hitSlop={8}
-                style={[
-                  styles.checkButton,
-                  isDone && styles.checkButtonActive,
-                ]}>
-                <Text
-                  style={[
-                    styles.checkButtonText,
-                    isDone && styles.checkButtonTextActive,
-                  ]}>
-                  {isDone ? '✓' : '○'}
-                </Text>
-              </Pressable>
-            </View>
-          );
-        })}
+                </Pressable>
+              </View>
+            );
+          })
+        )}
       </View>
     </View>
   );
@@ -175,6 +185,31 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
     color: '#64748B',
+  },
+  emptyCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingVertical: 24,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyIcon: {
+    fontSize: 24,
+    marginBottom: 6,
+  },
+  emptyTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0F172A',
+    marginBottom: 2,
+  },
+  emptySubtitle: {
+    fontSize: 12,
+    color: '#64748B',
+    textAlign: 'center',
   },
   viewAllButton: {
     paddingVertical: 4,

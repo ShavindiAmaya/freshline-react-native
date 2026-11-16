@@ -55,6 +55,7 @@ import {
   deleteFoodItem,
   getFoodItems,
   markItemAsUsed,
+  markItemAsWasted,
   updateFoodItem,
 } from '@/features/inventory/services/inventory.service';
 import {
@@ -92,6 +93,45 @@ const DIETARY_OPTIONS: { label: string; value: DietaryPreference }[] = [
 const ALLERGY_OPTIONS = ['Peanuts', 'Milk', 'Eggs', 'Gluten', 'Soy', 'Shellfish'];
 const CUISINE_OPTIONS = ['Sri Lankan', 'Indian', 'Chinese', 'Italian'];
 
+export interface WeeklyWasteSummary {
+  itemsUsed: number;
+  itemsWasted: number;
+  foodSavedPct: number;
+}
+
+export function calculateWeeklyWasteSummary(items: FoodItem[]): WeeklyWasteSummary {
+  const now = new Date();
+
+  let itemsUsed = 0;
+  let itemsWasted = 0;
+
+  for (const item of items) {
+    // Existing items without action timestamps must not be counted as recent activity
+    if (!item.actionDate) continue;
+
+    const actionTime = new Date(item.actionDate).getTime();
+    if (isNaN(actionTime)) continue;
+
+    const diffDays = (now.getTime() - actionTime) / (1000 * 60 * 60 * 24);
+    if (diffDays >= 0 && diffDays <= 7) {
+      if (item.isUsed) {
+        itemsUsed += 1;
+      } else if (item.isWasted) {
+        itemsWasted += 1;
+      }
+    }
+  }
+
+  const total = itemsUsed + itemsWasted;
+  const foodSavedPct = total > 0 ? Math.round((itemsUsed / total) * 100) : 0;
+
+  return {
+    itemsUsed,
+    itemsWasted,
+    foodSavedPct,
+  };
+}
+
 export default function FreshLineHomeScreen() {
   const router = useRouter();
 
@@ -119,7 +159,7 @@ export default function FreshLineHomeScreen() {
   }>({ categories: [], storageLocations: [] });
   const [isManageOptionsOpen, setIsManageOptionsOpen] = useState(false);
   const [inventoryFilter, setInventoryFilter] = useState<'All' | StorageLocation>('All');
-  const [inventoryStatusTab, setInventoryStatusTab] = useState<'unused' | 'used'>('unused');
+  const [inventoryStatusTab, setInventoryStatusTab] = useState<'unused' | 'used' | 'wasted'>('unused');
   const [itemToEdit, setItemToEdit] = useState<FoodItem | null>(null);
   const [stats, setStats] = useState<FoodSummaryStats>(INITIAL_SUMMARY_STATS);
 
@@ -303,10 +343,11 @@ export default function FreshLineHomeScreen() {
         void syncExpiryNotifications(items, authUser.id);
       }
 
-      const activeItems = items.filter((i) => !i.isUsed);
+      const activeItems = items.filter((i) => !i.isUsed && !i.isWasted);
       const expiringItems = items.filter(
         (i) =>
           !i.isUsed &&
+          !i.isWasted &&
           (calculateExpiryStatus(i.expiryDate) === 'Use Today' ||
             calculateExpiryStatus(i.expiryDate) === 'Use Soon')
       );
@@ -626,10 +667,20 @@ export default function FreshLineHomeScreen() {
     const targetItem = foodItems.find((i) => i.id === id);
     if (!targetItem) return;
     const willBeUsed = !targetItem.isUsed;
+    const nowIso = new Date().toISOString();
 
     // Optimistic update
     setFoodItems((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, isUsed: willBeUsed } : item))
+      prev.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              isUsed: willBeUsed,
+              isWasted: false,
+              actionDate: willBeUsed ? nowIso : null,
+            }
+          : item
+      )
     );
 
     try {
@@ -641,7 +692,7 @@ export default function FreshLineHomeScreen() {
           void cancelProductNotifications(id, authUser?.id);
         } else if (authUser?.id) {
           void scheduleExpiryNotifications(
-            { ...targetItem, isUsed: false },
+            { ...targetItem, isUsed: false, isWasted: false },
             authUser.id
           );
         }
@@ -671,7 +722,58 @@ export default function FreshLineHomeScreen() {
       console.error('Failed to update item status in Supabase:', err);
       // Revert optimistic update
       setFoodItems((prev) =>
-        prev.map((item) => (item.id === id ? { ...item, isUsed: !willBeUsed } : item))
+        prev.map((item) => (item.id === id ? targetItem : item))
+      );
+      triggerToast(err?.message || 'Failed to update item status.', 'error');
+    }
+  };
+
+  // Mark food item as wasted/discarded (connected to Supabase)
+  const handleToggleWasted = async (id: string) => {
+    const targetItem = foodItems.find((i) => i.id === id);
+    if (!targetItem) return;
+    const willBeWasted = !targetItem.isWasted;
+    const nowIso = new Date().toISOString();
+
+    // Optimistic update: an item cannot be both used and wasted
+    setFoodItems((prev) =>
+      prev.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              isWasted: willBeWasted,
+              isUsed: false,
+              actionDate: willBeWasted ? nowIso : null,
+            }
+          : item
+      )
+    );
+
+    try {
+      await markItemAsWasted(id, willBeWasted);
+
+      // Notification update: cancel when marked as wasted, reschedule if restored
+      if (Platform.OS !== 'web') {
+        if (willBeWasted) {
+          void cancelProductNotifications(id, authUser?.id);
+        } else if (authUser?.id) {
+          void scheduleExpiryNotifications(
+            { ...targetItem, isUsed: false, isWasted: false },
+            authUser.id
+          );
+        }
+      }
+
+      triggerToast(
+        willBeWasted
+          ? `Marked "${targetItem.name}" as wasted.`
+          : `Restored "${targetItem.name}" to active stock!`
+      );
+    } catch (err: any) {
+      console.error('Failed to update wasted status in Supabase:', err);
+      // Revert optimistic update
+      setFoodItems((prev) =>
+        prev.map((item) => (item.id === id ? targetItem : item))
       );
       triggerToast(err?.message || 'Failed to update item status.', 'error');
     }
@@ -804,23 +906,48 @@ export default function FreshLineHomeScreen() {
   const handlePressFoodItem = (item: FoodItem) => {
     const days = getDaysRemaining(item.expiryDate);
     const status = calculateExpiryStatus(item.expiryDate);
+
+    const actions: {
+      text: string;
+      onPress?: () => void;
+      style?: 'default' | 'cancel' | 'destructive';
+    }[] = [];
+
+    if (item.isUsed) {
+      actions.push({
+        text: '↺ Restore to Active Stock',
+        onPress: () => handleToggleUsed(item.id),
+      });
+    } else if (item.isWasted) {
+      actions.push({
+        text: '↺ Restore to Active Stock',
+        onPress: () => handleToggleWasted(item.id),
+      });
+    } else {
+      actions.push({
+        text: '✓ Mark Used',
+        onPress: () => handleToggleUsed(item.id),
+      });
+      actions.push({
+        text: '🗑️ Mark as Wasted',
+        onPress: () => handleToggleWasted(item.id),
+      });
+    }
+
+    actions.push({
+      text: 'Edit',
+      onPress: () => {
+        setItemToEdit(item);
+        setIsAddModalOpen(true);
+      },
+    });
+
+    actions.push({ text: 'Close', style: 'cancel' });
+
     Alert.alert(
       item.name,
-      `Days Remaining: ${days} (${status})\nStorage: ${item.storageLocation}\nCategory: ${item.category}\nQuantity: ${item.quantity} ${item.unit}`,
-      [
-        {
-          text: item.isUsed ? 'Reopen Item' : '✓ Mark Used',
-          onPress: () => handleToggleUsed(item.id),
-        },
-        {
-          text: 'Edit',
-          onPress: () => {
-            setItemToEdit(item);
-            setIsAddModalOpen(true);
-          },
-        },
-        { text: 'Close', style: 'cancel' },
-      ]
+      `Days Remaining: ${days} (${item.isWasted ? 'Wasted' : item.isUsed ? 'Used' : status})\nStorage: ${item.storageLocation}\nCategory: ${item.category}\nQuantity: ${item.quantity} ${item.unit}`,
+      actions
     );
   };
 
@@ -833,6 +960,7 @@ export default function FreshLineHomeScreen() {
     } else if (tab === 'inventory') {
       triggerToast('📦 Viewing tracked food inventory');
     } else if (tab === 'insights') {
+      void loadInventoryData();
       triggerToast('📊 Food waste impact analytics');
     }
   };
@@ -885,14 +1013,30 @@ export default function FreshLineHomeScreen() {
     return <Redirect href="/auth-preview" />;
   }
 
+  // Only items expiring today (days === 0) or tomorrow (days === 1), excluding used and wasted items
+  const expiringSoonItems = foodItems
+    .filter((item) => {
+      if (item.isUsed || item.isWasted || !item.expiryDate) return false;
+      const days = getDaysRemaining(item.expiryDate);
+      return days === 0 || days === 1;
+    })
+    .sort((a, b) => {
+      return getDaysRemaining(a.expiryDate) - getDaysRemaining(b.expiryDate);
+    });
+
   // Render tab specific view
   const renderTabContent = () => {
     if (activeTab === 'inventory') {
-      const unusedItems = foodItems.filter((i) => !i.isUsed);
+      const unusedItems = foodItems.filter((i) => !i.isUsed && !i.isWasted);
       const usedItems = foodItems.filter((i) => i.isUsed);
+      const wastedItems = foodItems.filter((i) => i.isWasted);
 
       const currentStatusItems =
-        inventoryStatusTab === 'unused' ? unusedItems : usedItems;
+        inventoryStatusTab === 'unused'
+          ? unusedItems
+          : inventoryStatusTab === 'used'
+          ? usedItems
+          : wastedItems;
 
       const userLocations =
         inventoryOptions.storageLocations.length > 0
@@ -912,8 +1056,8 @@ export default function FreshLineHomeScreen() {
             );
           }
           return (
-            new Date(b.createdAt || b.expiryDate).getTime() -
-            new Date(a.createdAt || a.expiryDate).getTime()
+            new Date(b.actionDate || b.createdAt || b.expiryDate).getTime() -
+            new Date(a.actionDate || a.createdAt || a.expiryDate).getTime()
           );
         });
 
@@ -926,7 +1070,9 @@ export default function FreshLineHomeScreen() {
               <Text style={styles.inventorySubtitle}>
                 {inventoryStatusTab === 'unused'
                   ? `${unusedItems.length} active item${unusedItems.length === 1 ? '' : 's'} in stock`
-                  : `${usedItems.length} item${usedItems.length === 1 ? '' : 's'} marked as used`}
+                  : inventoryStatusTab === 'used'
+                  ? `${usedItems.length} item${usedItems.length === 1 ? '' : 's'} marked as used`
+                  : `${wastedItems.length} item${wastedItems.length === 1 ? '' : 's'} marked as wasted`}
               </Text>
             </View>
             <Pressable
@@ -941,7 +1087,7 @@ export default function FreshLineHomeScreen() {
             </Pressable>
           </View>
 
-          {/* Two-part Segment: Unused (Default) vs Used */}
+          {/* Three-part Segment: Active vs Used vs Wasted */}
           <View style={styles.statusSegmentWrapper}>
             <Pressable
               accessibilityRole="tab"
@@ -956,7 +1102,7 @@ export default function FreshLineHomeScreen() {
                   styles.statusSegmentText,
                   inventoryStatusTab === 'unused' && styles.statusSegmentTextActive,
                 ]}>
-                Unused ({unusedItems.length})
+                Active ({unusedItems.length})
               </Text>
             </Pressable>
 
@@ -974,6 +1120,23 @@ export default function FreshLineHomeScreen() {
                   inventoryStatusTab === 'used' && styles.statusSegmentTextActive,
                 ]}>
                 Used ({usedItems.length})
+              </Text>
+            </Pressable>
+
+            <Pressable
+              accessibilityRole="tab"
+              accessibilityState={{ selected: inventoryStatusTab === 'wasted' }}
+              onPress={() => setInventoryStatusTab('wasted')}
+              style={[
+                styles.statusSegmentBtn,
+                inventoryStatusTab === 'wasted' && styles.statusSegmentBtnActive,
+              ]}>
+              <Text
+                style={[
+                  styles.statusSegmentText,
+                  inventoryStatusTab === 'wasted' && styles.statusSegmentTextActive,
+                ]}>
+                Wasted ({wastedItems.length})
               </Text>
             </Pressable>
           </View>
@@ -1093,7 +1256,7 @@ export default function FreshLineHomeScreen() {
                   accessibilityRole="button"
                   onPress={() => setInventoryStatusTab('unused')}
                   style={styles.emptyAddBtn}>
-                  <Text style={styles.emptyAddBtnText}>← View Unused Items</Text>
+                  <Text style={styles.emptyAddBtnText}>← View Active Stock</Text>
                 </Pressable>
               )}
             </View>
@@ -1135,7 +1298,7 @@ export default function FreshLineHomeScreen() {
                     key={item.id}
                     style={[
                       styles.inventoryCard,
-                      item.isUsed && styles.inventoryCardUsed,
+                      (item.isUsed || item.isWasted) && styles.inventoryCardUsed,
                     ]}>
                     {/* Header Row: Product Name & Status Badge */}
                     <View style={styles.cardHeaderRow}>
@@ -1143,7 +1306,8 @@ export default function FreshLineHomeScreen() {
                         <Text
                           style={[
                             styles.inventoryItemName,
-                            item.isUsed && styles.inventoryItemNameUsed,
+                            (item.isUsed || item.isWasted) &&
+                              styles.inventoryItemNameUsed,
                           ]}
                           numberOfLines={1}>
                           {item.name}
@@ -1157,16 +1321,34 @@ export default function FreshLineHomeScreen() {
                         style={[
                           styles.naturalBadge,
                           {
-                            backgroundColor: item.isUsed ? '#F1F5F9' : badgeBg,
-                            borderColor: item.isUsed ? '#E2E8F0' : badgeBorder,
+                            backgroundColor: item.isWasted
+                              ? '#FEE2E2'
+                              : item.isUsed
+                              ? '#F1F5F9'
+                              : badgeBg,
+                            borderColor: item.isWasted
+                              ? '#FECACA'
+                              : item.isUsed
+                              ? '#E2E8F0'
+                              : badgeBorder,
                           },
                         ]}>
                         <Text
                           style={[
                             styles.naturalBadgeText,
-                            { color: item.isUsed ? '#64748B' : badgeColor },
+                            {
+                              color: item.isWasted
+                                ? '#DC2626'
+                                : item.isUsed
+                                ? '#64748B'
+                                : badgeColor,
+                            },
                           ]}>
-                          {item.isUsed ? 'Used / Consumed' : status}
+                          {item.isWasted
+                            ? 'Wasted'
+                            : item.isUsed
+                            ? 'Used'
+                            : status}
                         </Text>
                       </View>
                     </View>
@@ -1204,38 +1386,79 @@ export default function FreshLineHomeScreen() {
                       </View>
                     </View>
 
-                    {/* Actions Row (No nested Pressables on React Native Web) */}
+                    {/* Actions Row */}
                     <View style={styles.cardActionsRow}>
-                      <Pressable
-                        accessibilityRole="button"
-                        onPress={() => handleToggleUsed(item.id)}
-                        style={[
-                          styles.actionPillBtn,
-                          item.isUsed
-                            ? styles.actionPillReopen
-                            : styles.actionPillUsed,
-                        ]}>
-                        <Text
-                          style={[
-                            styles.actionPillText,
-                            item.isUsed
-                              ? styles.actionTextReopen
-                              : styles.actionTextUsed,
-                          ]}>
-                          {item.isUsed ? '↺ Restore to Unused' : '✓ Mark Used'}
-                        </Text>
-                      </Pressable>
-
-                      <View style={styles.cardSecondaryActions}>
+                      {item.isUsed ? (
                         <Pressable
                           accessibilityRole="button"
-                          onPress={() => {
-                            setItemToEdit(item);
-                            setIsAddModalOpen(true);
-                          }}
-                          style={styles.editPillBtn}>
-                          <Text style={styles.editPillText}>Edit</Text>
+                          onPress={() => handleToggleUsed(item.id)}
+                          style={[styles.actionPillBtn, styles.actionPillReopen]}>
+                          <Text
+                            style={[
+                              styles.actionPillText,
+                              styles.actionTextReopen,
+                            ]}>
+                            ↺ Restore to Stock
+                          </Text>
                         </Pressable>
+                      ) : item.isWasted ? (
+                        <Pressable
+                          accessibilityRole="button"
+                          onPress={() => handleToggleWasted(item.id)}
+                          style={[styles.actionPillBtn, styles.actionPillReopen]}>
+                          <Text
+                            style={[
+                              styles.actionPillText,
+                              styles.actionTextReopen,
+                            ]}>
+                            ↺ Restore to Stock
+                          </Text>
+                        </Pressable>
+                      ) : (
+                        <View style={{ flexDirection: 'row', gap: 6 }}>
+                          <Pressable
+                            accessibilityRole="button"
+                            onPress={() => handleToggleUsed(item.id)}
+                            style={[styles.actionPillBtn, styles.actionPillUsed]}>
+                            <Text
+                              style={[
+                                styles.actionPillText,
+                                styles.actionTextUsed,
+                              ]}>
+                              ✓ Used
+                            </Text>
+                          </Pressable>
+
+                          <Pressable
+                            accessibilityRole="button"
+                            onPress={() => handleToggleWasted(item.id)}
+                            style={[
+                              styles.actionPillBtn,
+                              styles.actionPillWasted,
+                            ]}>
+                            <Text
+                              style={[
+                                styles.actionPillText,
+                                styles.actionTextWasted,
+                              ]}>
+                              🗑️ Wasted
+                            </Text>
+                          </Pressable>
+                        </View>
+                      )}
+
+                      <View style={styles.cardSecondaryActions}>
+                        {!item.isUsed && !item.isWasted && (
+                          <Pressable
+                            accessibilityRole="button"
+                            onPress={() => {
+                              setItemToEdit(item);
+                              setIsAddModalOpen(true);
+                            }}
+                            style={styles.editPillBtn}>
+                            <Text style={styles.editPillText}>Edit</Text>
+                          </Pressable>
+                        )}
 
                         <Pressable
                           accessibilityRole="button"
@@ -1468,6 +1691,8 @@ export default function FreshLineHomeScreen() {
     }
 
     if (activeTab === 'insights') {
+      const summary = calculateWeeklyWasteSummary(foodItems);
+
       return (
         <View style={styles.tabSectionWrapper}>
           <View style={styles.tabHeaderRow}>
@@ -1479,6 +1704,62 @@ export default function FreshLineHomeScreen() {
             </View>
           </View>
 
+          {/* Weekly Waste Summary Section (Above Tip Card) */}
+          <View style={styles.weeklySummarySection}>
+            <View style={styles.weeklySummaryHeaderRow}>
+              <View>
+                <Text style={styles.weeklySummaryTitle}>Weekly Waste Summary</Text>
+                <Text style={styles.weeklySummarySubtitle}>
+                  Recorded in the last 7 days
+                </Text>
+              </View>
+              <View style={styles.weeklyBadge}>
+                <Text style={styles.weeklyBadgeText}>Last 7 Days</Text>
+              </View>
+            </View>
+
+            <View style={styles.weeklyCardsRow}>
+              {/* Card 1: Items Used */}
+              <View style={styles.weeklyCard}>
+                <View style={[styles.weeklyCardIconWrap, styles.weeklyCardIconUsed]}>
+                  <Text style={styles.weeklyCardIcon}>✓</Text>
+                </View>
+                <Text style={styles.weeklyCardValue}>{summary.itemsUsed}</Text>
+                <Text style={styles.weeklyCardLabel}>Items Used</Text>
+                <Text style={styles.weeklyCardSub}>Consumed</Text>
+              </View>
+
+              {/* Card 2: Items Wasted */}
+              <View style={styles.weeklyCard}>
+                <View style={[styles.weeklyCardIconWrap, styles.weeklyCardIconWasted]}>
+                  <Text style={styles.weeklyCardIcon}>🗑️</Text>
+                </View>
+                <Text
+                  style={[
+                    styles.weeklyCardValue,
+                    summary.itemsWasted > 0 && styles.weeklyCardValueWasted,
+                  ]}>
+                  {summary.itemsWasted}
+                </Text>
+                <Text style={styles.weeklyCardLabel}>Items Wasted</Text>
+                <Text style={styles.weeklyCardSub}>Discarded</Text>
+              </View>
+
+              {/* Card 3: Food Saved (%) */}
+              <View style={styles.weeklyCard}>
+                <View style={[styles.weeklyCardIconWrap, styles.weeklyCardIconSaved]}>
+                  <Text style={styles.weeklyCardIcon}>🌱</Text>
+                </View>
+                <Text style={[styles.weeklyCardValue, styles.weeklyCardValueSaved]}>
+                  {summary.foodSavedPct}%
+                </Text>
+                <Text style={styles.weeklyCardLabel}>Food Saved</Text>
+                <Text style={styles.weeklyCardSub}>Saved ratio</Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Existing Food Saving Tip */}
           <View style={styles.insightBox}>
             <Text style={styles.insightTitle}>💡 Food Saving Tip</Text>
             <Text style={styles.insightBody}>
@@ -1822,9 +2103,9 @@ export default function FreshLineHomeScreen() {
           onExploreRecipes={handleExploreRecipes}
         />
 
-        {/* 3. Expiring Soon List */}
+        {/* 3. Expiring Soon List (Only items expiring today or tomorrow) */}
         <ExpiringSoonList
-          items={foodItems}
+          items={expiringSoonItems}
           onToggleUsed={handleToggleUsed}
           onPressItem={handlePressFoodItem}
           onPressViewAll={handleViewInventory}
@@ -1957,7 +2238,7 @@ export default function FreshLineHomeScreen() {
   };
 
   const todayExpiringItems = foodItems.filter(
-    (i) => !i.isUsed && getDaysRemaining(i.expiryDate) === 0
+    (i) => !i.isUsed && !i.isWasted && getDaysRemaining(i.expiryDate) === 0
   );
 
   return (
@@ -3262,6 +3543,9 @@ const styles = StyleSheet.create({
   actionPillUsed: {
     backgroundColor: '#DCFCE7',
   },
+  actionPillWasted: {
+    backgroundColor: '#FEE2E2',
+  },
   actionPillReopen: {
     backgroundColor: '#F1F5F9',
   },
@@ -3272,8 +3556,104 @@ const styles = StyleSheet.create({
   actionTextUsed: {
     color: '#15803D',
   },
+  actionTextWasted: {
+    color: '#DC2626',
+  },
   actionTextReopen: {
     color: '#64748B',
+  },
+  weeklySummarySection: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 16,
+    marginBottom: 16,
+    ...FreshTheme.shadows.soft,
+  },
+  weeklySummaryHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  weeklySummaryTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  weeklySummarySubtitle: {
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  weeklyBadge: {
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  weeklyBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  weeklyCardsRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  weeklyCard: {
+    flex: 1,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 12,
+    alignItems: 'center',
+  },
+  weeklyCardIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
+  },
+  weeklyCardIconUsed: {
+    backgroundColor: '#DCFCE7',
+  },
+  weeklyCardIconWasted: {
+    backgroundColor: '#FEE2E2',
+  },
+  weeklyCardIconSaved: {
+    backgroundColor: '#ECFDF5',
+  },
+  weeklyCardIcon: {
+    fontSize: 14,
+  },
+  weeklyCardValue: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#0F172A',
+    marginBottom: 2,
+  },
+  weeklyCardValueWasted: {
+    color: '#DC2626',
+  },
+  weeklyCardValueSaved: {
+    color: '#15803D',
+  },
+  weeklyCardLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#334155',
+    textAlign: 'center',
+    marginBottom: 2,
+  },
+  weeklyCardSub: {
+    fontSize: 10,
+    color: '#94A3B8',
+    textAlign: 'center',
   },
   cardSecondaryActions: {
     flexDirection: 'row',
