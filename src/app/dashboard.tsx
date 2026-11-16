@@ -376,18 +376,40 @@ export default function FreshLineHomeScreen() {
       triggerToast('Password must be at least 6 characters', 'error');
       return;
     }
-    setIsSavingPassword(true);
-    try {
-      const { error } = await supabase.auth.updateUser({
-        password: newPassword,
-      });
-      if (error) throw error;
-      setNewPassword('');
-      triggerToast('Password changed successfully!', 'success');
-    } catch (err: any) {
-      triggerToast(err?.message || 'Could not update password', 'error');
-    } finally {
-      setIsSavingPassword(false);
+
+    const performPasswordUpdate = async () => {
+      setIsSavingPassword(true);
+      try {
+        const { error } = await supabase.auth.updateUser({
+          password: newPassword,
+        });
+        if (error) throw error;
+        setNewPassword('');
+        triggerToast('Password changed successfully!', 'success');
+      } catch (err: any) {
+        triggerToast(err?.message || 'Could not update password', 'error');
+      } finally {
+        setIsSavingPassword(false);
+      }
+    };
+
+    // Ask for confirmation before changing password
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const confirmed = window.confirm(
+        'Are you sure you want to change your password?'
+      );
+      if (confirmed) {
+        void performPasswordUpdate();
+      }
+    } else {
+      Alert.alert(
+        'Change Password',
+        'Are you sure you want to change your password?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Yes, Change', onPress: () => void performPasswordUpdate() },
+        ]
+      );
     }
   };
 
@@ -874,8 +896,11 @@ export default function FreshLineHomeScreen() {
             />
             <Pressable
               onPress={handleSaveUsername}
-              disabled={isSavingUsername}
-              style={styles.saveBtn}>
+              disabled={!newUsername.trim() || isSavingUsername}
+              style={[
+                styles.saveBtn,
+                (!newUsername.trim() || isSavingUsername) && styles.saveBtnDisabled,
+              ]}>
               <Text style={styles.saveBtnText}>
                 {isSavingUsername ? 'Saving...' : 'Save Username'}
               </Text>
@@ -913,8 +938,11 @@ export default function FreshLineHomeScreen() {
             </View>
             <Pressable
               onPress={handleSavePassword}
-              disabled={isSavingPassword}
-              style={styles.saveBtn}>
+              disabled={!newPassword.trim() || isSavingPassword}
+              style={[
+                styles.saveBtn,
+                (!newPassword.trim() || isSavingPassword) && styles.saveBtnDisabled,
+              ]}>
               <Text style={styles.saveBtnText}>
                 {isSavingPassword ? 'Updating...' : 'Update Password'}
               </Text>
