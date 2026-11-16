@@ -22,13 +22,13 @@ import { AddFoodModal } from '@/components/dashboard/AddFoodModal';
 import { BottomNav } from '@/components/dashboard/BottomNav';
 import { ExpiringSoonList } from '@/components/dashboard/ExpiringSoonList';
 import { Header } from '@/components/dashboard/Header';
+import { ManageOptionsModal } from '@/components/dashboard/ManageOptionsModal';
 import { MotivationalCard } from '@/components/dashboard/MotivationalCard';
 import { QuickActions } from '@/components/dashboard/QuickActions';
 import { SummaryCards } from '@/components/dashboard/SummaryCards';
 
 import { FreshTheme } from '@/constants/freshline-theme';
 import {
-  INITIAL_FOOD_ITEMS,
   INITIAL_SUMMARY_STATS,
   INITIAL_USER_PROFILE,
 } from '@/data/mock-food-data';
@@ -38,6 +38,17 @@ import {
   subscribeToAuthChanges,
 } from '@/features/auth/services/auth.service';
 import {
+  InventoryOption,
+  getInventoryOptions,
+} from '@/features/inventory/services/inventory-options.service';
+import {
+  addFoodItem,
+  deleteFoodItem,
+  getFoodItems,
+  markItemAsUsed,
+  updateFoodItem,
+} from '@/features/inventory/services/inventory.service';
+import {
   DietaryPreference,
   getProfile,
   updateDisplayName,
@@ -45,7 +56,14 @@ import {
   uploadAvatar,
 } from '@/features/profile/services/profile.service';
 import { supabase } from '@/lib/supabase';
-import { DashboardFoodItem, DashboardTab, FoodSummaryStats } from '@/types/food';
+import {
+  DashboardTab,
+  FoodItem,
+  FoodSummaryStats,
+  StorageLocation,
+  calculateExpiryStatus,
+  getDaysRemaining,
+} from '@/types/food';
 
 const DIETARY_OPTIONS: { label: string; value: DietaryPreference }[] = [
   { label: 'Vegetarian', value: 'vegetarian' },
@@ -73,7 +91,18 @@ export default function FreshLineHomeScreen() {
 
   // Dashboard state
   const [activeTab, setActiveTab] = useState<DashboardTab>('home');
-  const [foodItems, setFoodItems] = useState<DashboardFoodItem[]>(INITIAL_FOOD_ITEMS);
+  const [foodItems, setFoodItems] = useState<FoodItem[]>([]);
+  const [isInventoryLoading, setIsInventoryLoading] = useState(true);
+  const [inventoryLoadError, setInventoryLoadError] = useState<string | null>(null);
+  const [isSavingFoodItem, setIsSavingFoodItem] = useState(false);
+  const [inventoryOptions, setInventoryOptions] = useState<{
+    categories: InventoryOption[];
+    storageLocations: InventoryOption[];
+  }>({ categories: [], storageLocations: [] });
+  const [isManageOptionsOpen, setIsManageOptionsOpen] = useState(false);
+  const [inventoryFilter, setInventoryFilter] = useState<'All' | StorageLocation>('All');
+  const [inventoryStatusTab, setInventoryStatusTab] = useState<'unused' | 'used'>('unused');
+  const [itemToEdit, setItemToEdit] = useState<FoodItem | null>(null);
   const [stats, setStats] = useState<FoodSummaryStats>(INITIAL_SUMMARY_STATS);
 
   // Modals & Feedback State
@@ -214,6 +243,56 @@ export default function FreshLineHomeScreen() {
     return () => {
       isActive = false;
     };
+  }, [authUser?.id]);
+
+  // Load food items and options from Supabase for the current user
+  const loadInventoryData = async () => {
+    if (!authUser?.id) return;
+    setIsInventoryLoading(true);
+    setInventoryLoadError(null);
+
+    try {
+      const [items, options] = await Promise.all([
+        getFoodItems(),
+        getInventoryOptions(),
+      ]);
+      setFoodItems(items);
+      setInventoryOptions(options);
+
+      const activeItems = items.filter((i) => !i.isUsed);
+      const expiringItems = items.filter(
+        (i) =>
+          !i.isUsed &&
+          (calculateExpiryStatus(i.expiryDate) === 'Use Today' ||
+            calculateExpiryStatus(i.expiryDate) === 'Use Soon')
+      );
+      const usedItems = items.filter((i) => i.isUsed);
+
+      setStats({
+        total_items: activeItems.length,
+        expiring_soon: expiringItems.length,
+        food_saved: usedItems.length,
+        co2_saved_kg: +(usedItems.length * 0.4).toFixed(1),
+        money_saved_usd: +(usedItems.length * 3.5).toFixed(1),
+      });
+    } catch (err: any) {
+      console.error('Failed to load inventory data from Supabase:', err);
+      setInventoryLoadError(
+        err?.message || 'Could not load your inventory. Please check your connection.'
+      );
+    } finally {
+      setIsInventoryLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (authUser?.id) {
+      void loadInventoryData();
+    } else {
+      setFoodItems([]);
+      setInventoryOptions({ categories: [], storageLocations: [] });
+      setIsInventoryLoading(false);
+    }
   }, [authUser?.id]);
 
   // Prefer the database name, then fall back to Supabase Auth metadata.
@@ -424,54 +503,142 @@ export default function FreshLineHomeScreen() {
     }, 3200);
   };
 
-  // Mark food item as used/saved
-  const handleToggleUsed = (id: string) => {
+  // Mark food item as used/saved (connected to Supabase)
+  const handleToggleUsed = async (id: string) => {
+    const targetItem = foodItems.find((i) => i.id === id);
+    if (!targetItem) return;
+    const willBeUsed = !targetItem.isUsed;
+
+    // Optimistic update
     setFoodItems((prev) =>
-      prev.map((item) => {
-        if (item.id === id) {
-          const willBeUsed = !item.is_used;
-          if (willBeUsed) {
-            triggerToast(`🎉 Marked "${item.name}" as saved!`);
-            setStats((prevStats) => ({
-              ...prevStats,
-              food_saved: prevStats.food_saved + 1,
-              expiring_soon: Math.max(0, prevStats.expiring_soon - 1),
-              co2_saved_kg: +(prevStats.co2_saved_kg + 0.4).toFixed(1),
-              money_saved_usd: +(prevStats.money_saved_usd + 3.5).toFixed(1),
-            }));
-          } else {
-            setStats((prevStats) => ({
-              ...prevStats,
-              food_saved: Math.max(0, prevStats.food_saved - 1),
-              expiring_soon: prevStats.expiring_soon + 1,
-            }));
-          }
-          return { ...item, is_used: willBeUsed };
-        }
-        return item;
-      })
+      prev.map((item) => (item.id === id ? { ...item, isUsed: willBeUsed } : item))
     );
+
+    try {
+      await markItemAsUsed(id, willBeUsed);
+      triggerToast(
+        willBeUsed
+          ? `🎉 Marked "${targetItem.name}" as used!`
+          : `Restored "${targetItem.name}" to active stock!`
+      );
+      setStats((prevStats) => ({
+        ...prevStats,
+        food_saved: willBeUsed
+          ? prevStats.food_saved + 1
+          : Math.max(0, prevStats.food_saved - 1),
+        expiring_soon: willBeUsed
+          ? Math.max(0, prevStats.expiring_soon - 1)
+          : prevStats.expiring_soon + 1,
+        co2_saved_kg: willBeUsed
+          ? +(prevStats.co2_saved_kg + 0.4).toFixed(1)
+          : Math.max(0, +(prevStats.co2_saved_kg - 0.4).toFixed(1)),
+        money_saved_usd: willBeUsed
+          ? +(prevStats.money_saved_usd + 3.5).toFixed(1)
+          : Math.max(0, +(prevStats.money_saved_usd - 3.5).toFixed(1)),
+      }));
+    } catch (err: any) {
+      console.error('Failed to update item status in Supabase:', err);
+      // Revert optimistic update
+      setFoodItems((prev) =>
+        prev.map((item) => (item.id === id ? { ...item, isUsed: !willBeUsed } : item))
+      );
+      triggerToast(err?.message || 'Failed to update item status.', 'error');
+    }
   };
 
-  // Add new food item (Supabase INSERT simulation)
-  const handleAddFood = (newItem: Omit<DashboardFoodItem, 'id' | 'created_at'>) => {
-    const createdItem: DashboardFoodItem = {
-      ...newItem,
-      id: `food_${Date.now()}`,
-      created_at: new Date().toISOString(),
+  // Add or Edit food item (connected to Supabase)
+  const handleSaveFoodItem = async (itemData: {
+    id?: string;
+    name: string;
+    category: string;
+    quantity: number;
+    unit: string;
+    purchaseDate: string;
+    expiryDate: string;
+    storageLocation: StorageLocation;
+  }) => {
+    setIsSavingFoodItem(true);
+    try {
+      if (itemData.id) {
+        // Edit existing item
+        const updatedItem = await updateFoodItem(itemData.id, itemData);
+        setFoodItems((prev) =>
+          prev.map((item) => (item.id === updatedItem.id ? updatedItem : item))
+        );
+        triggerToast(`Updated "${updatedItem.name}"`);
+      } else {
+        // Add new item
+        const createdItem = await addFoodItem({
+          name: itemData.name,
+          category: itemData.category,
+          quantity: itemData.quantity,
+          unit: itemData.unit,
+          purchaseDate: itemData.purchaseDate,
+          expiryDate: itemData.expiryDate,
+          storageLocation: itemData.storageLocation,
+        });
+
+        setFoodItems((prev) => [createdItem, ...prev]);
+        setStats((prev) => ({
+          ...prev,
+          total_items: prev.total_items + 1,
+          expiring_soon:
+            createdItem.status === 'Use Today' || createdItem.status === 'Use Soon'
+              ? prev.expiring_soon + 1
+              : prev.expiring_soon,
+        }));
+
+        triggerToast(`Added "${createdItem.name}" to ${createdItem.storageLocation}!`);
+      }
+
+      setIsAddModalOpen(false);
+      setItemToEdit(null);
+    } catch (err: any) {
+      console.error('Failed to save food item in Supabase:', err);
+      triggerToast(err?.message || 'Failed to save food item.', 'error');
+    } finally {
+      setIsSavingFoodItem(false);
+    }
+  };
+
+  // Delete food item with confirmation (connected to Supabase)
+  const handleDeleteItem = (item: FoodItem) => {
+    const confirmDelete = async () => {
+      try {
+        await deleteFoodItem(item.id);
+        setFoodItems((prev) => prev.filter((i) => i.id !== item.id));
+        setStats((prev) => ({
+          ...prev,
+          total_items: Math.max(0, prev.total_items - 1),
+          expiring_soon:
+            item.status === 'Use Today' || item.status === 'Use Soon'
+              ? Math.max(0, prev.expiring_soon - 1)
+              : prev.expiring_soon,
+        }));
+        triggerToast(`Deleted "${item.name}"`);
+      } catch (err: any) {
+        console.error('Failed to delete food item from Supabase:', err);
+        triggerToast(err?.message || 'Failed to delete food item.', 'error');
+      }
     };
 
-    setFoodItems((prev) => [createdItem, ...prev]);
-    setStats((prev) => ({
-      ...prev,
-      total_items: prev.total_items + 1,
-      expiring_soon:
-        createdItem.days_left <= 2
-          ? prev.expiring_soon + 1
-          : prev.expiring_soon,
-    }));
-
-    triggerToast(`🥗 Added "${createdItem.name}" to inventory!`);
+    if (Platform.OS === 'web') {
+      if (typeof window !== 'undefined') {
+        const ok = window.confirm(`Are you sure you want to delete "${item.name}"?`);
+        if (ok) void confirmDelete();
+      } else {
+        void confirmDelete();
+      }
+    } else {
+      Alert.alert(
+        'Delete Item',
+        `Are you sure you want to remove "${item.name}" from your inventory?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Delete', style: 'destructive', onPress: () => void confirmDelete() },
+        ]
+      );
+    }
   };
 
   // Action Handlers
@@ -483,14 +650,23 @@ export default function FreshLineHomeScreen() {
     setActiveTab('recipes');
   };
 
-  const handlePressFoodItem = (item: DashboardFoodItem) => {
+  const handlePressFoodItem = (item: FoodItem) => {
+    const days = getDaysRemaining(item.expiryDate);
+    const status = calculateExpiryStatus(item.expiryDate);
     Alert.alert(
-      `${item.icon} ${item.name}`,
-      `Days Remaining: ${item.days_left} (${item.status_label})\nStorage: ${item.storage_location}\nCategory: ${item.category}\n\nStatus: Demo Data - Connection Pending`,
+      item.name,
+      `Days Remaining: ${days} (${status})\nStorage: ${item.storageLocation}\nCategory: ${item.category}\nQuantity: ${item.quantity} ${item.unit}`,
       [
         {
-          text: item.is_used ? 'Mark Unused' : '✓ Mark Saved/Used',
+          text: item.isUsed ? 'Reopen Item' : '✓ Mark Used',
           onPress: () => handleToggleUsed(item.id),
+        },
+        {
+          text: 'Edit',
+          onPress: () => {
+            setItemToEdit(item);
+            setIsAddModalOpen(true);
+          },
         },
         { text: 'Close', style: 'cancel' },
       ]
@@ -547,53 +723,389 @@ export default function FreshLineHomeScreen() {
   // Render tab specific view
   const renderTabContent = () => {
     if (activeTab === 'inventory') {
+      const unusedItems = foodItems.filter((i) => !i.isUsed);
+      const usedItems = foodItems.filter((i) => i.isUsed);
+
+      const currentStatusItems =
+        inventoryStatusTab === 'unused' ? unusedItems : usedItems;
+
+      const userLocations =
+        inventoryOptions.storageLocations.length > 0
+          ? inventoryOptions.storageLocations.map((l) => l.name)
+          : ['Fridge', 'Pantry', 'Freezer'];
+
+      const displayedItems = currentStatusItems
+        .filter((item) => {
+          if (inventoryFilter === 'All') return true;
+          return item.storageLocation === inventoryFilter;
+        })
+        .sort((a, b) => {
+          if (inventoryStatusTab === 'unused') {
+            return (
+              new Date(a.expiryDate).getTime() -
+              new Date(b.expiryDate).getTime()
+            );
+          }
+          return (
+            new Date(b.createdAt || b.expiryDate).getTime() -
+            new Date(a.createdAt || a.expiryDate).getTime()
+          );
+        });
+
       return (
         <View style={styles.tabSectionWrapper}>
-          <View style={styles.tabHeaderRow}>
+          {/* Header */}
+          <View style={styles.inventoryHeaderRow}>
             <View>
-              <Text style={styles.tabTitle}>Kitchen Inventory</Text>
-              <Text style={styles.tabSubtitle}>
-                {foodItems.length} items logged • Demo Data - Connection Pending
+              <Text style={styles.inventoryTitle}>Kitchen Inventory</Text>
+              <Text style={styles.inventorySubtitle}>
+                {inventoryStatusTab === 'unused'
+                  ? `${unusedItems.length} active item${unusedItems.length === 1 ? '' : 's'} in stock`
+                  : `${usedItems.length} item${usedItems.length === 1 ? '' : 's'} marked as used`}
               </Text>
             </View>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Add Item"
-              onPress={() => setIsAddModalOpen(true)}
-              style={styles.addMiniBtn}>
-              <Text style={styles.addMiniBtnText}>＋ Add Item</Text>
+              onPress={() => {
+                setItemToEdit(null);
+                setIsAddModalOpen(true);
+              }}
+              style={styles.addInventoryBtn}>
+              <Text style={styles.addInventoryBtnText}>＋ Add Item</Text>
+            </Pressable>
+          </View>
+
+          {/* Two-part Segment: Unused (Default) vs Used */}
+          <View style={styles.statusSegmentWrapper}>
+            <Pressable
+              accessibilityRole="tab"
+              accessibilityState={{ selected: inventoryStatusTab === 'unused' }}
+              onPress={() => setInventoryStatusTab('unused')}
+              style={[
+                styles.statusSegmentBtn,
+                inventoryStatusTab === 'unused' && styles.statusSegmentBtnActive,
+              ]}>
+              <Text
+                style={[
+                  styles.statusSegmentText,
+                  inventoryStatusTab === 'unused' && styles.statusSegmentTextActive,
+                ]}>
+                Unused ({unusedItems.length})
+              </Text>
+            </Pressable>
+
+            <Pressable
+              accessibilityRole="tab"
+              accessibilityState={{ selected: inventoryStatusTab === 'used' }}
+              onPress={() => setInventoryStatusTab('used')}
+              style={[
+                styles.statusSegmentBtn,
+                inventoryStatusTab === 'used' && styles.statusSegmentBtnActive,
+              ]}>
+              <Text
+                style={[
+                  styles.statusSegmentText,
+                  inventoryStatusTab === 'used' && styles.statusSegmentTextActive,
+                ]}>
+                Used ({usedItems.length})
+              </Text>
             </Pressable>
           </View>
 
           {/* Location Filters */}
-          <View style={styles.filterRow}>
-            {['All', 'Fridge (3)', 'Pantry (1)', 'Freezer (0)'].map(
-              (f, idx) => (
-                <View
-                  key={f}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.inventoryFilterContainer}
+            style={styles.inventoryFilterScroll}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setInventoryFilter('All')}
+              style={[
+                styles.inventoryFilterChip,
+                inventoryFilter === 'All' && styles.inventoryFilterChipActive,
+              ]}>
+              <Text
+                style={[
+                  styles.inventoryFilterChipText,
+                  inventoryFilter === 'All' && styles.inventoryFilterChipTextActive,
+                ]}>
+                All ({currentStatusItems.length})
+              </Text>
+            </Pressable>
+
+            {userLocations.map((locName) => {
+              const count = currentStatusItems.filter(
+                (i) => i.storageLocation === locName
+              ).length;
+              const isSelected = inventoryFilter === locName;
+              return (
+                <Pressable
+                  key={locName}
+                  accessibilityRole="button"
+                  onPress={() => setInventoryFilter(locName)}
                   style={[
-                    styles.filterChip,
-                    idx === 0 && styles.filterChipActive,
+                    styles.inventoryFilterChip,
+                    isSelected && styles.inventoryFilterChipActive,
                   ]}>
                   <Text
                     style={[
-                      styles.filterChipText,
-                      idx === 0 && styles.filterChipTextActive,
+                      styles.inventoryFilterChipText,
+                      isSelected && styles.inventoryFilterChipTextActive,
                     ]}>
-                    {f}
+                    {locName} ({count})
                   </Text>
-                </View>
-              )
-            )}
-          </View>
+                </Pressable>
+              );
+            })}
 
-          {/* Full List */}
-          <ExpiringSoonList
-            items={foodItems}
-            onToggleUsed={handleToggleUsed}
-            onPressItem={handlePressFoodItem}
-            onPressViewAll={() => triggerToast('All inventory items loaded')}
-          />
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Manage Custom Options"
+              onPress={() => setIsManageOptionsOpen(true)}
+              style={styles.manageOptionsChip}>
+              <Text style={styles.manageOptionsChipText}>⚙ Options</Text>
+            </Pressable>
+          </ScrollView>
+
+          {/* Loading or Error or Product Items List */}
+          {isInventoryLoading ? (
+            <View style={styles.inventoryLoadingBox}>
+              <ActivityIndicator size="small" color="#16A34A" />
+              <Text style={styles.inventoryLoadingText}>
+                Loading your inventory from Supabase...
+              </Text>
+            </View>
+          ) : inventoryLoadError ? (
+            <View style={styles.inventoryErrorBox}>
+              <Text style={styles.inventoryErrorText}>⚠️ {inventoryLoadError}</Text>
+              <Pressable
+                onPress={() => void loadInventoryData()}
+                style={styles.retryBtn}>
+                <Text style={styles.retryBtnText}>Retry</Text>
+              </Pressable>
+            </View>
+          ) : displayedItems.length === 0 ? (
+            <View style={styles.emptyInventoryCard}>
+              <View style={styles.emptyIconCircle}>
+                <SymbolView
+                  name={{
+                    ios: inventoryStatusTab === 'unused' ? 'tray' : 'checkmark.circle',
+                    android: inventoryStatusTab === 'unused' ? 'inbox' : 'check_circle',
+                    web: inventoryStatusTab === 'unused' ? 'inbox' : 'check_circle',
+                  }}
+                  size={28}
+                  tintColor="#94A3B8"
+                />
+              </View>
+              <Text style={styles.emptyInventoryTitle}>
+                {inventoryStatusTab === 'unused'
+                  ? inventoryFilter === 'All'
+                    ? 'No unused items in stock'
+                    : `No unused items in ${inventoryFilter}`
+                  : inventoryFilter === 'All'
+                  ? 'No used items yet'
+                  : `No used items in ${inventoryFilter}`}
+              </Text>
+              <Text style={styles.emptyInventorySubtitle}>
+                {inventoryStatusTab === 'unused'
+                  ? 'Add food items to monitor freshness, reduce waste, and plan meals.'
+                  : 'Items you mark as used or saved will appear here.'}
+              </Text>
+              {inventoryStatusTab === 'unused' ? (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => {
+                    setItemToEdit(null);
+                    setIsAddModalOpen(true);
+                  }}
+                  style={styles.emptyAddBtn}>
+                  <Text style={styles.emptyAddBtnText}>＋ Add Item</Text>
+                </Pressable>
+              ) : (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setInventoryStatusTab('unused')}
+                  style={styles.emptyAddBtn}>
+                  <Text style={styles.emptyAddBtnText}>← View Unused Items</Text>
+                </Pressable>
+              )}
+            </View>
+          ) : (
+            <View style={styles.inventoryList}>
+              {displayedItems.map((item) => {
+                const days = getDaysRemaining(item.expiryDate);
+                const status = calculateExpiryStatus(item.expiryDate);
+
+                let badgeBg = '#ECFDF5';
+                let badgeColor = '#15803D';
+                let badgeBorder = '#BBF7D0';
+
+                if (status === 'Expired') {
+                  badgeBg = '#FEF2F2';
+                  badgeColor = '#DC2626';
+                  badgeBorder = '#FECACA';
+                } else if (status === 'Use Today') {
+                  badgeBg = '#FFF7ED';
+                  badgeColor = '#EA580C';
+                  badgeBorder = '#FFEDD5';
+                } else if (status === 'Use Soon') {
+                  badgeBg = '#FEFCE8';
+                  badgeColor = '#CA8A04';
+                  badgeBorder = '#FEF08A';
+                }
+
+                const daysRemainingText =
+                  days < 0
+                    ? `Expired ${Math.abs(days)}d ago`
+                    : days === 0
+                    ? 'Expires today'
+                    : days === 1
+                    ? '1 day left'
+                    : `${days} days left`;
+
+                return (
+                  <View
+                    key={item.id}
+                    style={[
+                      styles.inventoryCard,
+                      item.isUsed && styles.inventoryCardUsed,
+                    ]}>
+                    {/* Header Row: Product Name & Status Badge */}
+                    <View style={styles.cardHeaderRow}>
+                      <View style={styles.cardTitleCol}>
+                        <Text
+                          style={[
+                            styles.inventoryItemName,
+                            item.isUsed && styles.inventoryItemNameUsed,
+                          ]}
+                          numberOfLines={1}>
+                          {item.name}
+                        </Text>
+                        <Text style={styles.inventoryItemCategory}>
+                          {item.category} • {item.storageLocation}
+                        </Text>
+                      </View>
+
+                      <View
+                        style={[
+                          styles.naturalBadge,
+                          {
+                            backgroundColor: item.isUsed ? '#F1F5F9' : badgeBg,
+                            borderColor: item.isUsed ? '#E2E8F0' : badgeBorder,
+                          },
+                        ]}>
+                        <Text
+                          style={[
+                            styles.naturalBadgeText,
+                            { color: item.isUsed ? '#64748B' : badgeColor },
+                          ]}>
+                          {item.isUsed ? 'Used / Consumed' : status}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {/* Metadata Row: Quantity, Expiry, Days */}
+                    <View style={styles.cardMetaRow}>
+                      <View style={styles.metaCol}>
+                        <Text style={styles.metaLabel}>Quantity</Text>
+                        <Text style={styles.metaValue}>
+                          {item.quantity} {item.unit}
+                        </Text>
+                      </View>
+
+                      <View style={styles.metaCol}>
+                        <Text style={styles.metaLabel}>Expiry Date</Text>
+                        <Text style={styles.metaValue}>{item.expiryDate}</Text>
+                      </View>
+
+                      <View style={styles.metaCol}>
+                        <Text style={styles.metaLabel}>Remaining</Text>
+                        <Text
+                          style={[
+                            styles.metaValue,
+                            {
+                              color:
+                                days <= 0
+                                  ? '#DC2626'
+                                  : days <= 2
+                                  ? '#EA580C'
+                                  : '#15803D',
+                            },
+                          ]}>
+                          {daysRemainingText}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {/* Actions Row (No nested Pressables on React Native Web) */}
+                    <View style={styles.cardActionsRow}>
+                      <Pressable
+                        accessibilityRole="button"
+                        onPress={() => handleToggleUsed(item.id)}
+                        style={[
+                          styles.actionPillBtn,
+                          item.isUsed
+                            ? styles.actionPillReopen
+                            : styles.actionPillUsed,
+                        ]}>
+                        <Text
+                          style={[
+                            styles.actionPillText,
+                            item.isUsed
+                              ? styles.actionTextReopen
+                              : styles.actionTextUsed,
+                          ]}>
+                          {item.isUsed ? '↺ Restore to Unused' : '✓ Mark Used'}
+                        </Text>
+                      </Pressable>
+
+                      <View style={styles.cardSecondaryActions}>
+                        <Pressable
+                          accessibilityRole="button"
+                          onPress={() => {
+                            setItemToEdit(item);
+                            setIsAddModalOpen(true);
+                          }}
+                          style={styles.editPillBtn}>
+                          <Text style={styles.editPillText}>Edit</Text>
+                        </Pressable>
+
+                        <Pressable
+                          accessibilityRole="button"
+                          onPress={() => handleDeleteItem(item)}
+                          style={styles.deletePillBtn}>
+                          <Text style={styles.deletePillText}>Delete</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          )}
+
+          {/* Quick Switch Hint between Unused and Used */}
+          {inventoryStatusTab === 'unused' && usedItems.length > 0 && (
+            <Pressable
+              onPress={() => setInventoryStatusTab('used')}
+              style={styles.switchTabHintCard}>
+              <Text style={styles.switchTabHintText}>
+                Looking for consumed items? View {usedItems.length} Used item{usedItems.length === 1 ? '' : 's'} →
+              </Text>
+            </Pressable>
+          )}
+
+          {inventoryStatusTab === 'used' && (
+            <Pressable
+              onPress={() => setInventoryStatusTab('unused')}
+              style={styles.switchTabHintCard}>
+              <Text style={styles.switchTabHintText}>
+                ← Return to {unusedItems.length} Unused item{unusedItems.length === 1 ? '' : 's'} in stock
+              </Text>
+            </Pressable>
+          )}
 
           <Pressable
             onPress={() => setActiveTab('home')}
@@ -989,7 +1501,10 @@ export default function FreshLineHomeScreen() {
 
         {/* 2. Quick Actions */}
         <QuickActions
-          onAddFood={() => setIsAddModalOpen(true)}
+          onAddFood={() => {
+            setItemToEdit(null);
+            setIsAddModalOpen(true);
+          }}
           onViewInventory={handleViewInventory}
           onExploreRecipes={handleExploreRecipes}
         />
@@ -1044,11 +1559,28 @@ export default function FreshLineHomeScreen() {
         unreadCount={stats.expiring_soon}
       />
 
-      {/* Add Food Modal Sheet */}
+      {/* Add / Edit Food Modal Sheet */}
       <AddFoodModal
         visible={isAddModalOpen}
-        onClose={() => setIsAddModalOpen(false)}
-        onSave={handleAddFood}
+        onClose={() => {
+          setIsAddModalOpen(false);
+          setItemToEdit(null);
+        }}
+        onSave={handleSaveFoodItem}
+        itemToEdit={itemToEdit}
+        categories={inventoryOptions.categories.map((c) => c.name)}
+        storageLocations={inventoryOptions.storageLocations.map((l) => l.name)}
+        onManageOptions={() => setIsManageOptionsOpen(true)}
+        isSaving={isSavingFoodItem}
+      />
+
+      {/* Custom Options (Locations & Categories) Modal */}
+      <ManageOptionsModal
+        visible={isManageOptionsOpen}
+        onClose={() => setIsManageOptionsOpen(false)}
+        categories={inventoryOptions.categories}
+        storageLocations={inventoryOptions.storageLocations}
+        onOptionsUpdated={() => void loadInventoryData()}
       />
 
       {/* Notification Drawer Modal */}
@@ -1605,6 +2137,345 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: '#FFFFFF',
+  },
+  // Kitchen Inventory Screen Styles
+  inventoryHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  inventoryTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#0F172A',
+    letterSpacing: -0.4,
+  },
+  inventorySubtitle: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#64748B',
+    marginTop: 2,
+  },
+  addInventoryBtn: {
+    backgroundColor: '#16A34A',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addInventoryBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  statusSegmentWrapper: {
+    flexDirection: 'row',
+    backgroundColor: '#F1F5F9',
+    borderRadius: 10,
+    padding: 3,
+    marginBottom: 14,
+  },
+  statusSegmentBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statusSegmentBtnActive: {
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  statusSegmentText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  statusSegmentTextActive: {
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  inventoryFilterScroll: {
+    marginBottom: 16,
+  },
+  inventoryFilterContainer: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingRight: 8,
+  },
+  inventoryFilterChip: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
+  },
+  inventoryFilterChipActive: {
+    backgroundColor: '#ECFDF5',
+    borderColor: '#16A34A',
+  },
+  inventoryFilterChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  inventoryFilterChipTextActive: {
+    color: '#15803D',
+    fontWeight: '700',
+  },
+  manageOptionsChip: {
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderStyle: 'dashed',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  manageOptionsChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  inventoryLoadingBox: {
+    paddingVertical: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  inventoryLoadingText: {
+    fontSize: 13,
+    color: '#64748B',
+    fontWeight: '500',
+  },
+  inventoryErrorBox: {
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+    gap: 8,
+  },
+  inventoryErrorText: {
+    fontSize: 13,
+    color: '#DC2626',
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  retryBtn: {
+    backgroundColor: '#DC2626',
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  retryBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  inventoryList: {
+    gap: 12,
+  },
+  inventoryCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  inventoryCardUsed: {
+    backgroundColor: '#F8FAFC',
+    borderColor: '#CBD5E1',
+    opacity: 0.75,
+  },
+  cardHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 10,
+  },
+  cardTitleCol: {
+    flex: 1,
+    marginRight: 8,
+  },
+  inventoryItemName: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  inventoryItemNameUsed: {
+    textDecorationLine: 'line-through',
+    color: '#64748B',
+  },
+  inventoryItemCategory: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#64748B',
+    marginTop: 2,
+  },
+  naturalBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  naturalBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  cardMetaRow: {
+    flexDirection: 'row',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    marginBottom: 12,
+    justifyContent: 'space-between',
+  },
+  metaCol: {
+    flex: 1,
+  },
+  metaLabel: {
+    fontSize: 10,
+    fontWeight: '500',
+    color: '#94A3B8',
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+    marginBottom: 2,
+  },
+  metaValue: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#1E293B',
+  },
+  cardActionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: 4,
+  },
+  actionPillBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  actionPillUsed: {
+    backgroundColor: '#DCFCE7',
+  },
+  actionPillReopen: {
+    backgroundColor: '#F1F5F9',
+  },
+  actionPillText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  actionTextUsed: {
+    color: '#15803D',
+  },
+  actionTextReopen: {
+    color: '#64748B',
+  },
+  cardSecondaryActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  editPillBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    backgroundColor: '#F1F5F9',
+  },
+  editPillText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  deletePillBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    backgroundColor: '#FEF2F2',
+  },
+  deletePillText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#DC2626',
+  },
+  emptyInventoryCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingVertical: 36,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyIconCircle: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  emptyInventoryTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1E293B',
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  emptyInventorySubtitle: {
+    fontSize: 13,
+    fontWeight: '400',
+    color: '#64748B',
+    textAlign: 'center',
+    lineHeight: 18,
+    maxWidth: 280,
+    marginBottom: 16,
+  },
+  emptyAddBtn: {
+    backgroundColor: '#16A34A',
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  emptyAddBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  switchTabHintCard: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  switchTabHintText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#15803D',
   },
   toastContainer: {
     position: 'absolute',
