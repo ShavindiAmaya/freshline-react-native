@@ -1,4 +1,4 @@
-import { FoodItem, FoodSummaryStats, UserProfile } from '@/types/food';
+import { DashboardFoodItem, FoodSummaryStats, UserProfile } from '@/types/food';
 
 /**
  * Mock Food Data for FreshLine
@@ -25,7 +25,7 @@ export const INITIAL_SUMMARY_STATS: FoodSummaryStats = {
   money_saved_usd: 42.5,
 };
 
-export const INITIAL_FOOD_ITEMS: FoodItem[] = [
+export const INITIAL_FOOD_ITEMS: DashboardFoodItem[] = [
   {
     id: 'food_1',
     name: 'Milk',

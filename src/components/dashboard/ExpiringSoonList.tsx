@@ -1,12 +1,12 @@
 import React from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { FreshTheme } from '@/constants/freshline-theme';
-import { FoodItem, FreshnessStatus } from '@/types/food';
+import { DashboardFoodItem, DashboardFreshnessStatus } from '@/types/food';
 
 interface ExpiringSoonListProps {
-  items: FoodItem[];
+  items: DashboardFoodItem[];
   onToggleUsed?: (id: string) => void;
-  onPressItem?: (item: FoodItem) => void;
+  onPressItem?: (item: DashboardFoodItem) => void;
   onPressViewAll?: () => void;
 }
 
@@ -16,7 +16,7 @@ export function ExpiringSoonList({
   onPressItem,
   onPressViewAll,
 }: ExpiringSoonListProps) {
-  const getBadgeStyle = (status: FreshnessStatus) => {
+  const getBadgeStyle = (status: DashboardFreshnessStatus) => {
     switch (status) {
       case 'use_today':
         return {
