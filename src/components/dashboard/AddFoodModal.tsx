@@ -1,79 +1,158 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  Modal,
-  Pressable,
-  TextInput,
-  ScrollView,
+  ActivityIndicator,
   KeyboardAvoidingView,
+  Modal,
   Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from 'react-native';
-import { FreshTheme } from '@/constants/freshline-theme';
-import { DashboardFoodCategory, DashboardFoodItem, DashboardStorageLocation } from '@/types/food';
+import { FoodItem, StorageLocation } from '@/types/food';
 
 interface AddFoodModalProps {
   visible: boolean;
   onClose: () => void;
-  onSave: (item: Omit<DashboardFoodItem, 'id' | 'created_at'>) => void;
+  onSave: (itemData: {
+    id?: string;
+    name: string;
+    category: string;
+    quantity: number;
+    unit: string;
+    purchaseDate: string;
+    expiryDate: string;
+    storageLocation: StorageLocation;
+  }) => void;
+  itemToEdit?: FoodItem | null;
+  categories?: string[];
+  storageLocations?: string[];
+  onManageOptions?: () => void;
+  isSaving?: boolean;
 }
 
-const QUICK_PRESETS = [
-  { name: 'Strawberries', category: 'produce' as DashboardFoodCategory, icon: '🍓', days: 3, location: 'fridge' as DashboardStorageLocation },
-  { name: 'Avocado', category: 'produce' as DashboardFoodCategory, icon: '🥑', days: 2, location: 'pantry' as DashboardStorageLocation },
-  { name: 'Greek Yogurt', category: 'dairy' as DashboardFoodCategory, icon: '🥣', days: 5, location: 'fridge' as DashboardStorageLocation },
-  { name: 'Salmon Fillet', category: 'meat' as DashboardFoodCategory, icon: '🐟', days: 1, location: 'fridge' as DashboardStorageLocation },
-  { name: 'Sourdough Bread', category: 'bakery' as DashboardFoodCategory, icon: '🍞', days: 4, location: 'pantry' as DashboardStorageLocation },
+const DEFAULT_CATEGORIES = [
+  'Produce',
+  'Dairy',
+  'Meat',
+  'Bakery',
+  'Pantry',
+  'Beverages',
+  'Other',
 ];
 
-export function AddFoodModal({ visible, onClose, onSave }: AddFoodModalProps) {
-  const [name, setName] = useState('');
-  const [daysLeft, setDaysLeft] = useState('3');
-  const [location, setLocation] = useState<DashboardStorageLocation>('fridge');
-  const [icon, setIcon] = useState('🥗');
+const UNITS = ['Pieces', 'kg', 'g', 'L', 'ml', 'Pack'];
+const DEFAULT_LOCATIONS: StorageLocation[] = ['Fridge', 'Pantry', 'Freezer'];
 
-  const handleApplyPreset = (preset: typeof QUICK_PRESETS[0]) => {
-    setName(preset.name);
-    setDaysLeft(preset.days.toString());
-    setLocation(preset.location);
-    setIcon(preset.icon);
-  };
+// Helper to format date as YYYY-MM-DD
+function formatDateToISO(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+export function AddFoodModal({
+  visible,
+  onClose,
+  onSave,
+  itemToEdit,
+  categories,
+  storageLocations,
+  onManageOptions,
+  isSaving = false,
+}: AddFoodModalProps) {
+  const availableCategories =
+    categories && categories.length > 0 ? categories : DEFAULT_CATEGORIES;
+  const availableLocations =
+    storageLocations && storageLocations.length > 0
+      ? storageLocations
+      : DEFAULT_LOCATIONS;
+
+  const [name, setName] = useState('');
+  const [category, setCategory] = useState(availableCategories[0] || 'Produce');
+  const [quantity, setQuantity] = useState('1');
+  const [unit, setUnit] = useState('Pieces');
+  const [purchaseDate, setPurchaseDate] = useState('');
+  const [expiryDate, setExpiryDate] = useState('');
+  const [storageLocation, setStorageLocation] = useState<StorageLocation>(
+    availableLocations[0] || 'Fridge'
+  );
+  const [validationError, setValidationError] = useState('');
+
+  // Pre-fill fields when opening in edit mode or set clean defaults for add
+  useEffect(() => {
+    if (visible) {
+      setValidationError('');
+      if (itemToEdit) {
+        setName(itemToEdit.name);
+        setCategory(itemToEdit.category || availableCategories[0] || 'Produce');
+        setQuantity(String(itemToEdit.quantity || 1));
+        setUnit(itemToEdit.unit || 'Pieces');
+        setPurchaseDate(
+          itemToEdit.purchaseDate
+            ? itemToEdit.purchaseDate.split('T')[0]
+            : formatDateToISO(new Date())
+        );
+        setExpiryDate(
+          itemToEdit.expiryDate
+            ? itemToEdit.expiryDate.split('T')[0]
+            : formatDateToISO(new Date(Date.now() + 3 * 86400000))
+        );
+        setStorageLocation(
+          itemToEdit.storageLocation || availableLocations[0] || 'Fridge'
+        );
+      } else {
+        const today = new Date();
+        const defaultExpiry = new Date(Date.now() + 3 * 86400000);
+        setName('');
+        setCategory(availableCategories[0] || 'Produce');
+        setQuantity('1');
+        setUnit('Pieces');
+        setPurchaseDate(formatDateToISO(today));
+        setExpiryDate(formatDateToISO(defaultExpiry));
+        setStorageLocation(availableLocations[0] || 'Fridge');
+      }
+    }
+  }, [visible, itemToEdit, availableCategories, availableLocations]);
 
   const handleSubmit = () => {
-    if (!name.trim()) return;
+    setValidationError('');
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      setValidationError('Please enter a product name.');
+      return;
+    }
 
-    const days = parseInt(daysLeft, 10) || 1;
-    let status: DashboardFoodItem['status'] = 'fresh';
-    let status_label: DashboardFoodItem['status_label'] = 'Fresh';
+    const numQty = parseFloat(quantity);
+    if (isNaN(numQty) || numQty <= 0) {
+      setValidationError('Please enter a valid positive quantity.');
+      return;
+    }
 
-    if (days === 0) {
-      status = 'use_today';
-      status_label = 'Use Today';
-    } else if (days <= 2) {
-      status = 'use_soon';
-      status_label = 'Use Soon';
+    if (!purchaseDate.trim() || isNaN(new Date(purchaseDate).getTime())) {
+      setValidationError('Please enter a valid purchase date (YYYY-MM-DD).');
+      return;
+    }
+
+    if (!expiryDate.trim() || isNaN(new Date(expiryDate).getTime())) {
+      setValidationError('Please enter a valid expiry date (YYYY-MM-DD).');
+      return;
     }
 
     onSave({
-      name: name.trim(),
-      category: 'produce',
-      storage_location: location,
-      quantity: 1,
-      unit: 'item',
-      days_left: days,
-      expiry_date: new Date(Date.now() + days * 86400000).toISOString(),
-      status,
-      status_label,
-      icon: icon || '🥗',
-      notes: 'Added via FreshLine dashboard (Demo)',
+      id: itemToEdit?.id,
+      name: trimmedName,
+      category,
+      quantity: numQty,
+      unit,
+      purchaseDate: purchaseDate.trim(),
+      expiryDate: expiryDate.trim(),
+      storageLocation,
     });
 
-    // Reset form
-    setName('');
-    setDaysLeft('3');
-    setLocation('fridge');
-    setIcon('🥗');
     onClose();
   };
 
@@ -81,142 +160,167 @@ export function AddFoodModal({ visible, onClose, onSave }: AddFoodModalProps) {
     <Modal
       visible={visible}
       transparent
-      animationType="slide"
+      animationType="fade"
       onRequestClose={onClose}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.overlay}>
+        style={styles.modalOverlay}>
         <Pressable style={styles.backdrop} onPress={onClose} />
 
-        <View style={styles.sheetContainer}>
+        <View style={styles.sheetCard}>
           {/* Header */}
           <View style={styles.sheetHeader}>
             <View>
-              <Text style={styles.sheetTitle}>Add Food to Track</Text>
+              <Text style={styles.sheetTitle}>
+                {itemToEdit ? 'Edit Inventory Item' : 'Add Item to Inventory'}
+              </Text>
               <Text style={styles.sheetSubtitle}>
-                Prevent waste before it starts • Demo Data - Connection Pending
+                Track freshness and manage your food inventory
               </Text>
             </View>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Close"
-              onPress={onClose}
-              style={styles.closeBtn}>
+            <Pressable onPress={onClose} hitSlop={10} style={styles.closeBtn}>
               <Text style={styles.closeBtnText}>✕</Text>
             </Pressable>
           </View>
 
-          <ScrollView
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.scrollContent}>
-            {/* Quick Presets */}
-            <Text style={styles.fieldLabel}>Quick Suggestion</Text>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.presetsRow}>
-              {QUICK_PRESETS.map((p) => (
-                <Pressable
-                  key={p.name}
-                  onPress={() => handleApplyPreset(p)}
-                  style={[
-                    styles.presetPill,
-                    name === p.name && styles.presetPillActive,
-                  ]}>
-                  <Text style={styles.presetIcon}>{p.icon}</Text>
-                  <Text
-                    style={[
-                      styles.presetText,
-                      name === p.name && styles.presetTextActive,
-                    ]}>
-                    {p.name}
-                  </Text>
-                </Pressable>
-              ))}
-            </ScrollView>
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.formScroll}>
+            {/* Product Name */}
+            <Text style={styles.inputLabel}>Product Name *</Text>
+            <TextInput
+              value={name}
+              onChangeText={setName}
+              placeholder="e.g. Fresh Milk, Spinach, Chicken"
+              placeholderTextColor="#94A3B8"
+              style={styles.textInput}
+            />
 
-            {/* Food Name Input */}
-            <Text style={styles.fieldLabel}>Food Name</Text>
-            <View style={styles.inputRow}>
-              <TextInput
-                style={styles.textInput}
-                placeholder="e.g., Avocado, Strawberries"
-                placeholderTextColor={FreshTheme.colors.textMuted}
-                value={name}
-                onChangeText={setName}
-              />
-              <View style={styles.iconPickerBox}>
-                <Text style={styles.iconPickerText}>{icon}</Text>
+            {/* Storage Location */}
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.inputLabel}>Storage Location *</Text>
+              {onManageOptions && (
+                <Pressable onPress={onManageOptions} hitSlop={6}>
+                  <Text style={styles.manageLinkText}>⚙ Manage Locations</Text>
+                </Pressable>
+              )}
+            </View>
+            <View style={styles.chipsRow}>
+              {availableLocations.map((loc) => {
+                const isSelected = storageLocation === loc;
+                return (
+                  <Pressable
+                    key={loc}
+                    onPress={() => setStorageLocation(loc)}
+                    style={[styles.chip, isSelected && styles.chipActive]}>
+                    <Text style={[styles.chipText, isSelected && styles.chipTextActive]}>
+                      {loc}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            {/* Category */}
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.inputLabel}>Category</Text>
+              {onManageOptions && (
+                <Pressable onPress={onManageOptions} hitSlop={6}>
+                  <Text style={styles.manageLinkText}>⚙ Manage Categories</Text>
+                </Pressable>
+              )}
+            </View>
+            <View style={styles.chipsRow}>
+              {availableCategories.map((cat) => {
+                const isSelected = category === cat;
+                return (
+                  <Pressable
+                    key={cat}
+                    onPress={() => setCategory(cat)}
+                    style={[styles.chip, isSelected && styles.chipActive]}>
+                    <Text style={[styles.chipText, isSelected && styles.chipTextActive]}>
+                      {cat}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            {/* Quantity and Unit */}
+            <View style={styles.row}>
+              <View style={styles.col}>
+                <Text style={styles.inputLabel}>Quantity *</Text>
+                <TextInput
+                  value={quantity}
+                  onChangeText={setQuantity}
+                  placeholder="1"
+                  placeholderTextColor="#94A3B8"
+                  keyboardType="numeric"
+                  style={styles.textInput}
+                />
               </View>
             </View>
 
-            {/* Days Left Input */}
-            <Text style={styles.fieldLabel}>Days until Expiry</Text>
-            <View style={styles.daysPickerRow}>
-              {[
-                { label: '0d (Today)', value: '0' },
-                { label: '1 day', value: '1' },
-                { label: '2 days', value: '2' },
-                { label: '5 days', value: '5' },
-                { label: '10 days', value: '10' },
-              ].map((d) => (
-                <Pressable
-                  key={d.value}
-                  onPress={() => setDaysLeft(d.value)}
-                  style={[
-                    styles.dayChip,
-                    daysLeft === d.value && styles.dayChipActive,
-                  ]}>
-                  <Text
-                    style={[
-                      styles.dayChipText,
-                      daysLeft === d.value && styles.dayChipTextActive,
-                    ]}>
-                    {d.label}
-                  </Text>
-                </Pressable>
-              ))}
+            <Text style={styles.inputLabel}>Unit</Text>
+            <View style={styles.chipsRow}>
+              {UNITS.map((u) => {
+                const isSelected = unit === u;
+                return (
+                  <Pressable
+                    key={u}
+                    onPress={() => setUnit(u)}
+                    style={[styles.chip, isSelected && styles.chipActive]}>
+                    <Text style={[styles.chipText, isSelected && styles.chipTextActive]}>
+                      {u}
+                    </Text>
+                  </Pressable>
+                );
+              })}
             </View>
 
-            {/* Storage Location */}
-            <Text style={styles.fieldLabel}>Storage Location</Text>
-            <View style={styles.locationRow}>
-              {(['fridge', 'freezer', 'pantry'] as DashboardStorageLocation[]).map((loc) => (
-                <Pressable
-                  key={loc}
-                  onPress={() => setLocation(loc)}
-                  style={[
-                    styles.locationBtn,
-                    location === loc && styles.locationBtnActive,
-                  ]}>
-                  <Text style={styles.locationIcon}>
-                    {loc === 'fridge' ? '🧊' : loc === 'freezer' ? '❄️' : '🍞'}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.locationText,
-                      location === loc && styles.locationTextActive,
-                    ]}>
-                    {loc.charAt(0).toUpperCase() + loc.slice(1)}
-                  </Text>
-                </Pressable>
-              ))}
+            {/* Purchase & Expiry Dates */}
+            <View style={styles.row}>
+              <View style={styles.col}>
+                <Text style={styles.inputLabel}>Purchase Date (YYYY-MM-DD)</Text>
+                <TextInput
+                  value={purchaseDate}
+                  onChangeText={setPurchaseDate}
+                  placeholder="YYYY-MM-DD"
+                  placeholderTextColor="#94A3B8"
+                  style={styles.textInput}
+                />
+              </View>
+              <View style={styles.col}>
+                <Text style={styles.inputLabel}>Expiry Date * (YYYY-MM-DD)</Text>
+                <TextInput
+                  value={expiryDate}
+                  onChangeText={setExpiryDate}
+                  placeholder="YYYY-MM-DD"
+                  placeholderTextColor="#94A3B8"
+                  style={styles.textInput}
+                />
+              </View>
             </View>
 
-            {/* Submit Button */}
+            {/* Validation Error */}
+            {validationError ? (
+              <Text style={styles.errorText}>{validationError}</Text>
+            ) : null}
+
+            {/* Action Buttons */}
             <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Save Food Item"
-              disabled={!name.trim()}
               onPress={handleSubmit}
-              style={({ pressed }) => [
-                styles.saveButton,
-                !name.trim() && styles.saveButtonDisabled,
-                pressed && styles.buttonPressed,
-              ]}>
-              <Text style={styles.saveButtonText}>
-                ✓ Add Item (Demo Mode)
-              </Text>
+              disabled={isSaving}
+              style={[styles.saveBtn, isSaving && { opacity: 0.6 }]}>
+              {isSaving ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Text style={styles.saveBtnText}>
+                  {itemToEdit ? 'Save Changes' : 'Save Item'}
+                </Text>
+              )}
+            </Pressable>
+
+            <Pressable onPress={onClose} style={styles.cancelBtn}>
+              <Text style={styles.cancelBtnText}>Cancel</Text>
             </Pressable>
           </ScrollView>
         </View>
@@ -226,205 +330,157 @@ export function AddFoodModal({ visible, onClose, onSave }: AddFoodModalProps) {
 }
 
 const styles = StyleSheet.create({
-  overlay: {
+  modalOverlay: {
     flex: 1,
-    justifyContent: 'flex-end',
     backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
   },
   backdrop: {
-    flex: 1,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
-  sheetContainer: {
+  sheetCard: {
     backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: FreshTheme.borderRadius.xl,
-    borderTopRightRadius: FreshTheme.borderRadius.xl,
-    paddingHorizontal: FreshTheme.spacing.lg,
-    paddingTop: FreshTheme.spacing.md,
-    paddingBottom: Platform.OS === 'ios' ? 36 : 24,
-    maxHeight: '85%',
-    ...FreshTheme.shadows.floating,
+    borderRadius: 16,
+    width: '100%',
+    maxWidth: 500,
+    maxHeight: '90%',
+    padding: 20,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 8,
   },
   sheetHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: FreshTheme.spacing.md,
-    paddingBottom: FreshTheme.spacing.xs,
+    alignItems: 'flex-start',
+    paddingBottom: 14,
     borderBottomWidth: 1,
     borderBottomColor: '#F1F5F9',
+    marginBottom: 14,
   },
   sheetTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: FreshTheme.colors.textPrimary,
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#0F172A',
   },
   sheetSubtitle: {
     fontSize: 12,
-    fontWeight: '500',
-    color: FreshTheme.colors.textSecondary,
+    color: '#64748B',
     marginTop: 2,
   },
   closeBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#F1F5F9',
-    alignItems: 'center',
-    justifyContent: 'center',
+    padding: 4,
   },
   closeBtnText: {
-    fontSize: 14,
+    fontSize: 16,
+    color: '#94A3B8',
     fontWeight: '700',
-    color: FreshTheme.colors.textSecondary,
   },
-  scrollContent: {
-    paddingBottom: 20,
+  formScroll: {
+    paddingBottom: 10,
   },
-  fieldLabel: {
+  inputLabel: {
     fontSize: 13,
-    fontWeight: '700',
-    color: FreshTheme.colors.textPrimary,
-    marginBottom: 8,
-    marginTop: 12,
-  },
-  presetsRow: {
-    flexDirection: 'row',
-    gap: 8,
-    paddingBottom: 4,
-  },
-  presetPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: FreshTheme.borderRadius.full,
-    gap: 6,
-  },
-  presetPillActive: {
-    backgroundColor: FreshTheme.colors.primaryLight,
-    borderColor: FreshTheme.colors.primary,
-  },
-  presetIcon: {
-    fontSize: 14,
-  },
-  presetText: {
-    fontSize: 12,
     fontWeight: '600',
-    color: FreshTheme.colors.textSecondary,
+    color: '#334155',
+    marginTop: 10,
+    marginBottom: 6,
   },
-  presetTextActive: {
-    color: FreshTheme.colors.primaryDark,
-    fontWeight: '700',
-  },
-  inputRow: {
+  sectionHeaderRow: {
     flexDirection: 'row',
-    gap: 8,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 10,
+    marginBottom: 6,
+  },
+  manageLinkText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#16A34A',
   },
   textInput: {
-    flex: 1,
-    backgroundColor: '#F8FAFC',
+    height: 42,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: FreshTheme.borderRadius.md,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    borderColor: '#CBD5E1',
+    borderRadius: 8,
+    paddingHorizontal: 12,
     fontSize: 14,
-    color: FreshTheme.colors.textPrimary,
+    color: '#0F172A',
+    backgroundColor: '#F8FAFC',
   },
-  iconPickerBox: {
-    width: 48,
-    height: 48,
-    borderRadius: FreshTheme.borderRadius.md,
-    backgroundColor: FreshTheme.colors.primarySubtle,
-    borderWidth: 1,
-    borderColor: FreshTheme.colors.primaryBorder,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  iconPickerText: {
-    fontSize: 22,
-  },
-  daysPickerRow: {
+  chipsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
+    marginBottom: 4,
   },
-  dayChip: {
+  chip: {
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: FreshTheme.borderRadius.md,
-    backgroundColor: '#F8FAFC',
+    paddingVertical: 6,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: '#E2E8F0',
+    backgroundColor: '#FFFFFF',
   },
-  dayChipActive: {
-    backgroundColor: FreshTheme.colors.primaryLight,
-    borderColor: FreshTheme.colors.primary,
+  chipActive: {
+    borderColor: '#16A34A',
+    backgroundColor: '#DCFCE7',
   },
-  dayChipText: {
+  chipText: {
     fontSize: 12,
-    fontWeight: '600',
-    color: FreshTheme.colors.textSecondary,
+    color: '#475569',
+    fontWeight: '500',
   },
-  dayChipTextActive: {
-    color: FreshTheme.colors.primaryDark,
+  chipTextActive: {
+    color: '#15803D',
     fontWeight: '700',
   },
-  locationRow: {
+  row: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 12,
   },
-  locationBtn: {
+  col: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 10,
-    borderRadius: FreshTheme.borderRadius.md,
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
   },
-  locationBtnActive: {
-    backgroundColor: FreshTheme.colors.primaryLight,
-    borderColor: FreshTheme.colors.primary,
-  },
-  locationIcon: {
-    fontSize: 16,
-  },
-  locationText: {
+  errorText: {
+    color: '#EF4444',
     fontSize: 12,
     fontWeight: '600',
-    color: FreshTheme.colors.textSecondary,
+    marginTop: 10,
+    marginBottom: 4,
   },
-  locationTextActive: {
-    color: FreshTheme.colors.primaryDark,
-    fontWeight: '700',
-  },
-  saveButton: {
-    backgroundColor: FreshTheme.colors.primary,
-    borderRadius: FreshTheme.borderRadius.md,
-    paddingVertical: 14,
+  saveBtn: {
+    backgroundColor: '#16A34A',
+    height: 44,
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 20,
-    ...FreshTheme.shadows.card,
+    marginTop: 18,
   },
-  saveButtonDisabled: {
-    opacity: 0.5,
-  },
-  saveButtonText: {
-    fontSize: 15,
-    fontWeight: '800',
+  saveBtnText: {
     color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
   },
-  buttonPressed: {
-    opacity: 0.85,
-    transform: [{ scale: 0.98 }],
+  cancelBtn: {
+    height: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 6,
+  },
+  cancelBtnText: {
+    color: '#64748B',
+    fontSize: 13,
+    fontWeight: '600',
   },
 });
-
