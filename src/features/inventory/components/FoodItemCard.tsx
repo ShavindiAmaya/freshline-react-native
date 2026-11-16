@@ -1,7 +1,6 @@
-import React from 'react';
-import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { FreshTheme } from '@/constants/freshline-theme';
 import { ExpiryStatus } from '@/types/food';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { CATEGORY_DEFAULT_ICONS } from '../services/inventoryService';
 import { InventoryFoodItem } from '../types/inventory.types';
 
@@ -11,8 +10,8 @@ interface FoodItemCardProps {
 }
 
 /**
- * Derives days remaining from an expiry date using calendar-day comparison.
- * Returns a negative number for expired items.
+ * Calculates the days left until expiry.
+ * Returns a negative number if the item has expired.
  */
 function getDaysLeft(expiryDate: string): number {
   const today = new Date();
@@ -75,8 +74,8 @@ export function FoodItemCard({ item, onPress }: FoodItemCardProps) {
     item.storageLocation === 'Fridge'
       ? '🧊 Fridge'
       : item.storageLocation === 'Freezer'
-      ? '❄️ Freezer'
-      : '🍞 Pantry';
+        ? '❄️ Freezer'
+        : '🍞 Pantry';
 
   return (
     <Pressable

@@ -17,8 +17,8 @@ import {
 // ─────────────────────────────────────────────────────────────
 
 /**
- * Default emoji icon per food category.
- * Used by the form UI to preview the item icon — not persisted to the DB.
+ * Sets a default emoji for each food category.
+ * Used in the form preview only, not saved to the database.
  */
 export const CATEGORY_DEFAULT_ICONS: Record<DashboardFoodCategory, string> = {
   dairy: '🥛',
@@ -42,17 +42,11 @@ export function getTodayDateString(): string {
   return `${year}-${month}-${day}`;
 }
 
-// ─────────────────────────────────────────────────────────────
-// Internal helpers
-// ─────────────────────────────────────────────────────────────
+// Internal helper functions
 
 /**
- * Derives ExpiryStatus from an expiry date string (YYYY-MM-DD or ISO).
- * Uses calendar-day comparison — no time component:
- *   - Expired  : expiry date is before today
- *   - Use Today: expiry date is today
- *   - Use Soon : expiry date is within the next 2 calendar days
- *   - Fresh    : expiry date is more than 2 days away
+ * Checks the expiry date and returns the correct status.
+ * Compares dates without considering the time.
  */
 function deriveStatus(expiryDate: string): ExpiryStatus {
   const today = new Date();
@@ -70,12 +64,10 @@ function deriveStatus(expiryDate: string): ExpiryStatus {
   if (diffDays <= 2) return 'Use Soon';
   return 'Fresh';
 }
-
 /**
- * Maps a raw Supabase DB row (snake_case) to the shared FoodItem (camelCase)
- * with status derived from the expiry date.
+ * Changes database data into the FoodItem format used in the app.
+ * Also sets the item's expiry status.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapRow(row: any): InventoryFoodItem {
   return {
     id: row.id as string,
@@ -93,8 +85,8 @@ function mapRow(row: any): InventoryFoodItem {
 }
 
 /**
- * Returns the authenticated user's UUID, or throws if unauthenticated.
- * Uses supabase.auth.getUser() — the server-verified path.
+ * Gets the logged-in user's ID.
+ * Shows an error if no user is logged in.
  */
 async function getCurrentUserId(): Promise<string> {
   const { data, error } = await supabase.auth.getUser();
@@ -104,27 +96,18 @@ async function getCurrentUserId(): Promise<string> {
   return data.user.id;
 }
 
-// ─────────────────────────────────────────────────────────────
-// Inventory CRUD Service
-// ─────────────────────────────────────────────────────────────
+// Inventory service
 
 /**
- * INVENTORY CRUD SERVICE
- *
- * Performs real Supabase CRUD operations on the food_items table.
- * All operations are scoped to the currently authenticated user via RLS
- * and an explicit .eq('user_id', uid) filter on every query.
- *
- * Database columns: id, user_id, name, category, quantity, unit,
- *                   purchase_date, expiry_date, storage_location, created_at
- *
- * Returned items conform to the shared FoodItem interface (camelCase).
- * ExpiryStatus is derived from expiry_date — it is not stored in the DB.
+ * Handles adding, viewing, updating, and deleting food items in Supabase.
+ * Each operation works only with the logged-in user's data.
+ * Converts database data into the FoodItem format used in the app.
+ * Calculates expiry status from the expiry date.
  */
 class InventoryService {
   /**
-   * Fetch all inventory items for the current user, newest first.
-   */
+  * Gets the current user's food items, newest first.
+  */
   async getAll(): Promise<InventoryFoodItem[]> {
     const uid = await getCurrentUserId();
     const { data, error } = await supabase
@@ -138,8 +121,8 @@ class InventoryService {
   }
 
   /**
-   * Fetch a single item by id (must belong to the current user).
-   */
+ * Gets one food item by ID for the logged-in user.
+ */
   async getById(id: string): Promise<InventoryFoodItem | null> {
     const uid = await getCurrentUserId();
     const { data, error } = await supabase
@@ -157,9 +140,9 @@ class InventoryService {
   }
 
   /**
-   * Fetch items filtered by storage location.
-   * Passing 'all' returns all items (same as getAll).
-   */
+ * Gets food items by storage location.
+ * Returns all items if 'all' is selected.
+ */
   async getByLocation(location: StorageFilter): Promise<InventoryFoodItem[]> {
     if (location === 'all') return this.getAll();
 
@@ -176,10 +159,10 @@ class InventoryService {
   }
 
   /**
-   * Create a new food item for the current user.
-   * Validates the input payload before inserting.
-   * purchase_date defaults to today when not supplied.
-   */
+  * Adds a new food item for the logged-in user.
+  * Checks the details before saving.
+  * Uses today's date if the purchase date is not provided.
+  */
   async create(input: CreateFoodItemInput): Promise<InventoryFoodItem> {
     const effectivePurchaseDate = input.purchase_date?.trim() || getTodayDateString();
     const payloadWithDefault: CreateFoodItemInput = {
@@ -249,14 +232,10 @@ class InventoryService {
   }
 
   /**
-   * Delete a food item by id.
-   * Returns true if a row was deleted, false if the item was not found.
-   *
-   * NOTE: Member E's finish-food / waste-record integration is not yet
-   * implemented — no shared RPC or service function exists in the codebase.
-   * When Member E ships their service, a waste record should be created here
-   * before deleting. For now, deletion proceeds without a waste record.
-   */
+ * Deletes a food item by ID.
+ * Returns true if deleted, or false if not found.
+ * Waste record integration will be added by Member E later.
+ */
   async delete(id: string): Promise<boolean> {
     const uid = await getCurrentUserId();
     const { error, count } = await supabase
@@ -272,7 +251,5 @@ class InventoryService {
 
 export const inventoryService = new InventoryService();
 
-// ─────────────────────────────────────────────────────────────
-// Re-export deriveStatus so UI components can use it
-// ─────────────────────────────────────────────────────────────
+// Makes deriveStatus available to UI components.
 export { deriveStatus };

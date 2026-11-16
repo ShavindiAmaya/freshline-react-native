@@ -303,7 +303,7 @@ export function AddFoodModal({ visible, onClose, onSave }: AddFoodModalProps) {
               ))}
             </View>
 
-            {/* 5. Purchase Date (Defaulted to today) */}
+            {/* 5. Purchase Date*/}
             <View style={styles.fieldGroup}>
               <Text style={styles.fieldLabel}>Purchase Date *</Text>
               <View style={styles.purchaseDateRow}>

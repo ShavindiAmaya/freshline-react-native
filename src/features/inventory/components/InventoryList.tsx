@@ -1,6 +1,5 @@
-import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
 import { FreshTheme } from '@/constants/freshline-theme';
+import { StyleSheet, Text, View } from 'react-native';
 import { ExpiryFilter, InventoryFoodItem, StorageFilter } from '../types/inventory.types';
 import { FoodItemCard } from './FoodItemCard';
 
@@ -18,9 +17,8 @@ export function InventoryList({
   onPressItem,
 }: InventoryListProps) {
   if (items.length === 0) {
-    // Build a human-readable description of the active filter combination
-    const storageLabel =
-      activeFilter === 'all' ? null : `${activeFilter} storage`;
+    // Creates a readable description of the selected filters.    const storageLabel =
+    activeFilter === 'all' ? null : `${activeFilter} storage`;
     const expiryLabel =
       activeExpiryFilter === 'all' ? null : `"${activeExpiryFilter}"`;
 

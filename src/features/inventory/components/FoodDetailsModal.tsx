@@ -1,7 +1,6 @@
-import React from 'react';
-import { View, Text, StyleSheet, Modal, Pressable, Platform } from 'react-native';
 import { FreshTheme } from '@/constants/freshline-theme';
 import { ExpiryStatus } from '@/types/food';
+import { Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { CATEGORY_DEFAULT_ICONS } from '../services/inventoryService';
 import { InventoryFoodItem } from '../types/inventory.types';
 
@@ -11,13 +10,11 @@ interface FoodDetailsModalProps {
   onClose: () => void;
   onEdit: (item: InventoryFoodItem) => void;
   onDelete: (item: InventoryFoodItem) => void;
-  /** Optional — wired up once Member E ships finishFood(). Buttons are hidden until provided. */
+  /** Called when the finish food functionality is integrated. */
   onFinish?: (id: string, outcome: 'Consumed' | 'Wasted') => void;
 }
 
-/**
- * Derives days remaining from an expiry date using calendar-day comparison.
- */
+// Calculates the number of days left until expiry.
 function getDaysLeft(expiryDate: string): number {
   const today = new Date();
   const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
@@ -73,11 +70,11 @@ export function FoodDetailsModal({
       return isNaN(d.getTime())
         ? item.expiryDate
         : d.toLocaleDateString(undefined, {
-            weekday: 'short',
-            month: 'short',
-            day: 'numeric',
-            year: 'numeric',
-          });
+          weekday: 'short',
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric',
+        });
     } catch {
       return item.expiryDate;
     }
@@ -91,10 +88,10 @@ export function FoodDetailsModal({
       return isNaN(d.getTime())
         ? raw
         : d.toLocaleDateString(undefined, {
-            month: 'short',
-            day: 'numeric',
-            year: 'numeric',
-          });
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric',
+        });
     } catch {
       return raw;
     }
@@ -111,8 +108,8 @@ export function FoodDetailsModal({
     item.storageLocation === 'Fridge'
       ? '🧊 Fridge'
       : item.storageLocation === 'Freezer'
-      ? '❄️ Freezer'
-      : '🍞 Pantry';
+        ? '❄️ Freezer'
+        : '🍞 Pantry';
 
   return (
     <Modal
@@ -185,7 +182,7 @@ export function FoodDetailsModal({
             </View>
           </View>
 
-          {/* Dates Box showing Purchase Date and Target Expiry Date */}
+          {/* Displays the purchase date and expiry date. */}
           <View style={styles.datesBox}>
             <View style={styles.dateBlock}>
               <Text style={styles.dateBlockLabel}>PURCHASE DATE</Text>
@@ -200,11 +197,7 @@ export function FoodDetailsModal({
 
           {/* Action Buttons */}
           <View style={styles.actionButtonsCol}>
-            {/*
-             * Finish as Consumed / Finish as Wasted
-             * Always rendered. Disabled until Member E wires up onFinish (finishFood RPC).
-             * No DB write, no delete, no fake success happens here.
-             */}
+            {/* Finish food actions, pending Member E integration. */}
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={
@@ -491,7 +484,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: FreshTheme.colors.useSoon.text,
   },
-  /** Applied to Finish buttons when onFinish is not yet provided */
+  // Styles for disabled Finish buttons.
   btnPending: {
     opacity: 0.45,
   },
