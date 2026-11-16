@@ -10,56 +10,20 @@ import {
 } from 'react-native';
 
 import { FreshTheme } from '@/constants/freshline-theme';
-import type { MonthlyAnalytics, WasteRecord } from '../types.local';
+import type { WasteRecord } from '@/types/waste';
 import {
   calculateMonthlyAnalytics,
   filterRecordsByMonth,
   roundWasteRate,
+  type MonthlyAnalytics,
 } from '../services/analytics.service';
 import { listWasteRecords } from '../services/waste.service';
 
 /**
- * MOCK DATA
- * Generates 10 consumed items and 3 wasted items in the current month.
- * Test criteria: 10 Consumed + 3 Wasted = 13 total -> 23.1% waste rate.
- * Most wasted category: Produce (2 Bananas/Lettuce vs 1 Bakery).
- */
-const now = new Date();
-const currentMonthIso = now.toISOString();
-
-const MOCK_WASTE_RECORDS: WasteRecord[] = [
-  // 10 Consumed items
-  { id: 'mock-1', userId: 'user-1', foodItemId: 'f-1', foodName: 'Strawberries', category: 'Produce', outcome: 'Consumed', quantity: 1, unit: 'box', recordedAt: currentMonthIso },
-  { id: 'mock-2', userId: 'user-1', foodItemId: 'f-2', foodName: 'Whole Milk', category: 'Dairy', outcome: 'Consumed', quantity: 1, unit: 'bottle', recordedAt: currentMonthIso },
-  { id: 'mock-3', userId: 'user-1', foodItemId: 'f-3', foodName: 'Greek Yogurt', category: 'Dairy', outcome: 'Consumed', quantity: 1, unit: 'tub', recordedAt: currentMonthIso },
-  { id: 'mock-4', userId: 'user-1', foodItemId: 'f-4', foodName: 'Whole Grain Bread', category: 'Bakery', outcome: 'Consumed', quantity: 1, unit: 'loaf', recordedAt: currentMonthIso },
-  { id: 'mock-5', userId: 'user-1', foodItemId: 'f-5', foodName: 'Baby Spinach', category: 'Produce', outcome: 'Consumed', quantity: 1, unit: 'bag', recordedAt: currentMonthIso },
-  { id: 'mock-6', userId: 'user-1', foodItemId: 'f-6', foodName: 'Atlantic Salmon', category: 'Meat', outcome: 'Consumed', quantity: 2, unit: 'fillets', recordedAt: currentMonthIso },
-  { id: 'mock-7', userId: 'user-1', foodItemId: 'f-7', foodName: 'Farm Eggs', category: 'Dairy', outcome: 'Consumed', quantity: 12, unit: 'eggs', recordedAt: currentMonthIso },
-  { id: 'mock-8', userId: 'user-1', foodItemId: 'f-8', foodName: 'Brown Rice', category: 'Pantry', outcome: 'Consumed', quantity: 1, unit: 'bag', recordedAt: currentMonthIso },
-  { id: 'mock-9', userId: 'user-1', foodItemId: 'f-9', foodName: 'Gala Apples', category: 'Produce', outcome: 'Consumed', quantity: 4, unit: 'apples', recordedAt: currentMonthIso },
-  { id: 'mock-10', userId: 'user-1', foodItemId: 'f-10', foodName: 'Cheddar Cheese', category: 'Dairy', outcome: 'Consumed', quantity: 1, unit: 'block', recordedAt: currentMonthIso },
-
-  // 3 Wasted items
-  { id: 'mock-11', userId: 'user-1', foodItemId: 'f-11', foodName: 'Bananas', category: 'Produce', outcome: 'Wasted', quantity: 3, unit: 'pieces', recordedAt: currentMonthIso },
-  { id: 'mock-12', userId: 'user-1', foodItemId: 'f-12', foodName: 'Romaine Lettuce', category: 'Produce', outcome: 'Wasted', quantity: 1, unit: 'head', recordedAt: currentMonthIso },
-  { id: 'mock-13', userId: 'user-1', foodItemId: 'f-13', foodName: 'Sourdough Baguette', category: 'Bakery', outcome: 'Wasted', quantity: 1, unit: 'loaf', recordedAt: currentMonthIso },
-];
-
-/**
- * Data loading helper function.
- * SWAP IN PRODUCTION: Change the return statement to:
- * `return await listWasteRecords();`
+ * Loads waste records from the database for the authenticated user.
  */
 async function loadRecords(): Promise<WasteRecord[]> {
-  // Simulate network latency (250ms) to demonstrate loading state
-  await new Promise((resolve) => setTimeout(resolve, 250));
-
-  // RETURN MOCK DATA (labeled for demo):
-  return MOCK_WASTE_RECORDS;
-
-  // TODO: Once Supabase client is connected, uncomment:
-  // return await listWasteRecords();
+  return await listWasteRecords();
 }
 
 export default function InsightsScreen() {
@@ -144,12 +108,6 @@ export default function InsightsScreen() {
           <Text style={styles.screenSubheading}>
             Food consumption & waste balance
           </Text>
-        </View>
-
-        {/* Demo Data disclaimer pill */}
-        <View style={styles.demoPill}>
-          <View style={styles.demoDot} />
-          <Text style={styles.demoPillText}>Demo data</Text>
         </View>
       </View>
 
@@ -324,29 +282,6 @@ const styles = StyleSheet.create({
     color: FreshTheme.colors.textSecondary,
     marginTop: 2,
     fontWeight: '500',
-  },
-  demoPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FEF3C7',
-    borderWidth: 1,
-    borderColor: '#FDE68A',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: FreshTheme.borderRadius.full,
-    gap: 5,
-  },
-  demoDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#D97706',
-  },
-  demoPillText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#92400E',
-    textTransform: 'uppercase',
   },
   emptyContainer: {
     backgroundColor: '#FFFFFF',
