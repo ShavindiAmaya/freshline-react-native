@@ -63,14 +63,21 @@ export function RecipesScreen({
         }
       }
 
-      // Search query filter (matches recipe name or ingredient names)
-      if (searchQuery.trim().length > 0) {
-        const query = searchQuery.trim().toLowerCase();
-        const matchesName = item.recipe.name.toLowerCase().includes(query);
-        const matchesIngredient = item.recipe.ingredients.some((ing) =>
-          ing.toLowerCase().includes(query)
-        );
-        return matchesName || matchesIngredient;
+      // Search query filter (matches every word across recipe name or ingredient names)
+      const searchWords = searchQuery.trim().toLowerCase().split(/\s+/).filter(Boolean);
+      if (searchWords.length > 0) {
+        const recipeName = item.recipe.name.toLowerCase();
+        const ingredients = item.recipe.ingredients.map((ing) => ing.toLowerCase());
+
+        const matchesAllWords = searchWords.every((word) => {
+          const inName = recipeName.includes(word);
+          const inIngredients = ingredients.some((ing) => ing.includes(word));
+          return inName || inIngredients;
+        });
+
+        if (!matchesAllWords) {
+          return false;
+        }
       }
 
       return true;
