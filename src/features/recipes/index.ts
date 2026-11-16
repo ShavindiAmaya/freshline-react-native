@@ -1,12 +1,5 @@
 /**
- * FreshLine Recipes Feature (Member D - Cook What I Have)
- *
- * Public exports for the Integration Lead and other features:
- * - Screens: RecipesScreen, RecipeDetailsScreen
- * - Components: RecipeCard, IngredientMatchList
- * - Services: matchRecipe, matchRecipes, normalizeIngredient, isFoodItemUsable, isFoodItemUrgent
- * - Types: Recipe, RecipeMatchResult
- * - Data: recipes
+ * Exports the Recipes feature components, screens, services, types, and data.
  */
 
 // Screens
