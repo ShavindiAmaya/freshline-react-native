@@ -1,7 +1,9 @@
 import type { User } from '@supabase/supabase-js';
-import { Redirect, useRouter } from 'expo-router';
+import { Image } from 'expo-image';
+import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState } from 'react';
+import { SymbolView } from 'expo-symbols';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -14,8 +16,6 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { Image } from 'expo-image';
-import { SymbolView } from 'expo-symbols';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AddFoodModal } from '@/components/dashboard/AddFoodModal';
@@ -74,8 +74,29 @@ const DIETARY_OPTIONS: { label: string; value: DietaryPreference }[] = [
 const ALLERGY_OPTIONS = ['Peanuts', 'Milk', 'Eggs', 'Gluten', 'Soy', 'Shellfish'];
 const CUISINE_OPTIONS = ['Sri Lankan', 'Indian', 'Chinese', 'Italian'];
 
+type ScannedFoodInitialValues = {
+  name: string;
+  category: string;
+  quantity: string;
+  unit: string;
+};
+
 export default function FreshLineHomeScreen() {
   const router = useRouter();
+  const {
+    scanResultId,
+    scannedName,
+    scannedCategory,
+    scannedQuantity,
+    scannedUnit,
+  } = useLocalSearchParams<{
+    scanResultId?: string;
+    scannedName?: string;
+    scannedCategory?: string;
+    scannedQuantity?: string;
+    scannedUnit?: string;
+  }>();
+  const handledScanResultId = useRef<string | null>(null);
 
   // Authentication state
   const [authUser, setAuthUser] = useState<User | null>(null);
@@ -107,6 +128,8 @@ export default function FreshLineHomeScreen() {
 
   // Modals & Feedback State
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [scannedInitialValues, setScannedInitialValues] =
+    useState<ScannedFoodInitialValues | null>(null);
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const [toast, setToast] = useState<{
     message: string;
@@ -128,6 +151,49 @@ export default function FreshLineHomeScreen() {
   const [selectedCuisines, setSelectedCuisines] = useState<string[]>([]);
   const [isSavingPreferences, setIsSavingPreferences] = useState(false);
   const [hasPreferenceChanges, setHasPreferenceChanges] = useState(false);
+
+  // Receive scanned product details and open the Add Food modal.
+  useEffect(() => {
+    const resultId = typeof scanResultId === 'string' ? scanResultId : '';
+    const productName =
+      typeof scannedName === 'string' ? scannedName.trim() : '';
+
+    if (!resultId || !productName || handledScanResultId.current === resultId) {
+      return;
+    }
+
+    handledScanResultId.current = resultId;
+
+    setScannedInitialValues({
+      name: productName,
+      category:
+        typeof scannedCategory === 'string' ? scannedCategory : 'Other',
+      quantity:
+        typeof scannedQuantity === 'string' ? scannedQuantity : '1',
+      unit: typeof scannedUnit === 'string' ? scannedUnit : 'Pack',
+    });
+
+    setItemToEdit(null);
+    setActiveTab('inventory');
+    setInventoryStatusTab('unused');
+    setIsAddModalOpen(true);
+
+    // Clear the consumed route parameters so the modal does not reopen.
+    router.setParams({
+      scanResultId: '',
+      scannedName: '',
+      scannedCategory: '',
+      scannedQuantity: '',
+      scannedUnit: '',
+    });
+  }, [
+    scanResultId,
+    scannedName,
+    scannedCategory,
+    scannedQuantity,
+    scannedUnit,
+    router,
+  ]);
 
   // Restore the saved session and listen for authentication changes.
   useEffect(() => {
@@ -203,9 +269,9 @@ export default function FreshLineHomeScreen() {
           const rawDietary = data.dietary_preference?.toLowerCase().trim();
           const loadedDietary: DietaryPreference =
             rawDietary === 'vegetarian' ||
-            rawDietary === 'non_vegetarian' ||
-            rawDietary === 'vegan' ||
-            rawDietary === 'not_set'
+              rawDietary === 'non_vegetarian' ||
+              rawDietary === 'vegan' ||
+              rawDietary === 'not_set'
               ? rawDietary
               : 'not_set';
           const loadedAllergies = Array.isArray(data.allergies) ? data.allergies : [];
@@ -326,18 +392,18 @@ export default function FreshLineHomeScreen() {
 
   const memberSince = authUser?.created_at
     ? new Date(authUser.created_at).toLocaleDateString(undefined, {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-      })
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    })
     : 'Recently';
 
   const lastSignIn = authUser?.last_sign_in_at
     ? new Date(authUser.last_sign_in_at).toLocaleDateString(undefined, {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-      })
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    })
     : 'Today';
 
   // Pick profile photo from device/web
@@ -593,6 +659,7 @@ export default function FreshLineHomeScreen() {
 
       setIsAddModalOpen(false);
       setItemToEdit(null);
+      setScannedInitialValues(null);
     } catch (err: any) {
       console.error('Failed to save food item in Supabase:', err);
       triggerToast(err?.message || 'Failed to save food item.', 'error');
@@ -664,6 +731,7 @@ export default function FreshLineHomeScreen() {
         {
           text: 'Edit',
           onPress: () => {
+            setScannedInitialValues(null);
             setItemToEdit(item);
             setIsAddModalOpen(true);
           },
@@ -764,16 +832,37 @@ export default function FreshLineHomeScreen() {
                   : `${usedItems.length} item${usedItems.length === 1 ? '' : 's'} marked as used`}
               </Text>
             </View>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Add Item"
-              onPress={() => {
-                setItemToEdit(null);
-                setIsAddModalOpen(true);
-              }}
-              style={styles.addInventoryBtn}>
-              <Text style={styles.addInventoryBtnText}>＋ Add Item</Text>
-            </Pressable>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Scan Barcode"
+                onPress={() => router.push('/food-scanner')}
+                style={[
+                  styles.addInventoryBtn,
+                  {
+                    backgroundColor: '#FFFFFF',
+                    borderWidth: 1,
+                    borderColor: '#16A34A',
+                    paddingHorizontal: 10,
+                  },
+                ]}>
+                <Text style={[styles.addInventoryBtnText, { color: '#16A34A' }]}>
+                  Scan Barcode
+                </Text>
+              </Pressable>
+
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Add Item"
+                onPress={() => {
+                  setItemToEdit(null);
+                  setScannedInitialValues(null);
+                  setIsAddModalOpen(true);
+                }}
+                style={styles.addInventoryBtn}>
+                <Text style={styles.addInventoryBtnText}>＋ Add Item</Text>
+              </Pressable>
+            </View>
           </View>
 
           {/* Two-part Segment: Unused (Default) vs Used */}
@@ -905,8 +994,8 @@ export default function FreshLineHomeScreen() {
                     ? 'No unused items in stock'
                     : `No unused items in ${inventoryFilter}`
                   : inventoryFilter === 'All'
-                  ? 'No used items yet'
-                  : `No used items in ${inventoryFilter}`}
+                    ? 'No used items yet'
+                    : `No used items in ${inventoryFilter}`}
               </Text>
               <Text style={styles.emptyInventorySubtitle}>
                 {inventoryStatusTab === 'unused'
@@ -918,6 +1007,7 @@ export default function FreshLineHomeScreen() {
                   accessibilityRole="button"
                   onPress={() => {
                     setItemToEdit(null);
+                    setScannedInitialValues(null);
                     setIsAddModalOpen(true);
                   }}
                   style={styles.emptyAddBtn}>
@@ -960,10 +1050,10 @@ export default function FreshLineHomeScreen() {
                   days < 0
                     ? `Expired ${Math.abs(days)}d ago`
                     : days === 0
-                    ? 'Expires today'
-                    : days === 1
-                    ? '1 day left'
-                    : `${days} days left`;
+                      ? 'Expires today'
+                      : days === 1
+                        ? '1 day left'
+                        : `${days} days left`;
 
                 return (
                   <View
@@ -1030,8 +1120,8 @@ export default function FreshLineHomeScreen() {
                                 days <= 0
                                   ? '#DC2626'
                                   : days <= 2
-                                  ? '#EA580C'
-                                  : '#15803D',
+                                    ? '#EA580C'
+                                    : '#15803D',
                             },
                           ]}>
                           {daysRemainingText}
@@ -1503,6 +1593,7 @@ export default function FreshLineHomeScreen() {
         <QuickActions
           onAddFood={() => {
             setItemToEdit(null);
+            setScannedInitialValues(null);
             setIsAddModalOpen(true);
           }}
           onViewInventory={handleViewInventory}
@@ -1562,9 +1653,11 @@ export default function FreshLineHomeScreen() {
       {/* Add / Edit Food Modal Sheet */}
       <AddFoodModal
         visible={isAddModalOpen}
+        initialValues={scannedInitialValues}
         onClose={() => {
           setIsAddModalOpen(false);
           setItemToEdit(null);
+          setScannedInitialValues(null);
         }}
         onSave={handleSaveFoodItem}
         itemToEdit={itemToEdit}

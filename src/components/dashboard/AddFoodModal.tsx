@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import type { FoodItem, StorageLocation } from '@/types/food';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -11,7 +12,6 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { FoodItem, StorageLocation } from '@/types/food';
 
 interface AddFoodModalProps {
   visible: boolean;
@@ -27,6 +27,12 @@ interface AddFoodModalProps {
     storageLocation: StorageLocation;
   }) => void;
   itemToEdit?: FoodItem | null;
+  initialValues?: {
+    name: string;
+    category: string;
+    quantity: string;
+    unit: string;
+  } | null;
   categories?: string[];
   storageLocations?: string[];
   onManageOptions?: () => void;
@@ -54,11 +60,65 @@ function formatDateToISO(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
+// Match Open Food Facts categories to the categories configured in FreshLine.
+function resolveScannedCategory(
+  scannedCategory: string,
+  availableCategories: string[]
+): string {
+  const value = scannedCategory.trim().toLowerCase();
+
+  if (!value) {
+    return (
+      availableCategories.find((item) => item.toLowerCase() === 'other') ||
+      availableCategories[0] ||
+      'Other'
+    );
+  }
+
+  const exactMatch = availableCategories.find(
+    (item) => item.toLowerCase() === value
+  );
+  if (exactMatch) return exactMatch;
+
+  const partialMatch = availableCategories.find((item) => {
+    const candidate = item.toLowerCase();
+    return value.includes(candidate) || candidate.includes(value);
+  });
+  if (partialMatch) return partialMatch;
+
+  const categoryRules: { keywords: string[]; category: string }[] = [
+    { keywords: ['milk', 'dairy', 'cheese', 'yogurt', 'butter'], category: 'Dairy' },
+    { keywords: ['biscuit', 'cookie', 'bread', 'cake', 'pastry', 'bakery'], category: 'Bakery' },
+    { keywords: ['chicken', 'beef', 'pork', 'meat', 'fish', 'seafood'], category: 'Meat' },
+    { keywords: ['fruit', 'vegetable', 'produce', 'apple', 'banana', 'orange'], category: 'Produce' },
+    { keywords: ['drink', 'beverage', 'juice', 'water', 'soda'], category: 'Beverages' },
+    { keywords: ['rice', 'pasta', 'cereal', 'canned', 'snack', 'pantry'], category: 'Pantry' },
+  ];
+
+  const mappedRule = categoryRules.find((rule) =>
+    rule.keywords.some((keyword) => value.includes(keyword))
+  );
+
+  if (mappedRule) {
+    const mappedCategory = availableCategories.find(
+      (item) => item.toLowerCase() === mappedRule.category.toLowerCase()
+    );
+    if (mappedCategory) return mappedCategory;
+  }
+
+  return (
+    availableCategories.find((item) => item.toLowerCase() === 'other') ||
+    availableCategories[0] ||
+    'Other'
+  );
+}
+
 export function AddFoodModal({
   visible,
   onClose,
   onSave,
   itemToEdit,
+  initialValues,
   categories,
   storageLocations,
   onManageOptions,
@@ -107,16 +167,32 @@ export function AddFoodModal({
       } else {
         const today = new Date();
         const defaultExpiry = new Date(Date.now() + 3 * 86400000);
-        setName('');
-        setCategory(availableCategories[0] || 'Produce');
-        setQuantity('1');
-        setUnit('Pieces');
+
+        if (initialValues) {
+          setName(initialValues.name || '');
+          setCategory(
+            resolveScannedCategory(initialValues.category, availableCategories)
+          );
+          setQuantity(initialValues.quantity || '1');
+          setUnit(
+            UNITS.find(
+              (availableUnit) =>
+                availableUnit.toLowerCase() === initialValues.unit.toLowerCase()
+            ) || 'Pack'
+          );
+        } else {
+          setName('');
+          setCategory(availableCategories[0] || 'Produce');
+          setQuantity('1');
+          setUnit('Pieces');
+        }
+
         setPurchaseDate(formatDateToISO(today));
         setExpiryDate(formatDateToISO(defaultExpiry));
         setStorageLocation(availableLocations[0] || 'Fridge');
       }
     }
-  }, [visible, itemToEdit, availableCategories, availableLocations]);
+  }, [visible, itemToEdit, initialValues, availableCategories, availableLocations]);
 
   const handleSubmit = () => {
     setValidationError('');
@@ -179,7 +255,7 @@ export function AddFoodModal({
               </Text>
             </View>
             <Pressable onPress={onClose} hitSlop={10} style={styles.closeBtn}>
-              <Text style={styles.closeBtnText}>✕</Text>
+              <Text style={styles.closeBtnText}>âœ•</Text>
             </Pressable>
           </View>
 
@@ -199,7 +275,7 @@ export function AddFoodModal({
               <Text style={styles.inputLabel}>Storage Location *</Text>
               {onManageOptions && (
                 <Pressable onPress={onManageOptions} hitSlop={6}>
-                  <Text style={styles.manageLinkText}>⚙ Manage Locations</Text>
+                  <Text style={styles.manageLinkText}>âš™ Manage Locations</Text>
                 </Pressable>
               )}
             </View>
@@ -224,7 +300,7 @@ export function AddFoodModal({
               <Text style={styles.inputLabel}>Category</Text>
               {onManageOptions && (
                 <Pressable onPress={onManageOptions} hitSlop={6}>
-                  <Text style={styles.manageLinkText}>⚙ Manage Categories</Text>
+                  <Text style={styles.manageLinkText}>âš™ Manage Categories</Text>
                 </Pressable>
               )}
             </View>

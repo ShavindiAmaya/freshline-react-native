@@ -1,4 +1,3 @@
-
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
@@ -14,9 +13,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { supabase } from '@/lib/supabase';
-import type { StorageLocation } from '@/types/food';
-
 type Product = {
     code?: string;
     product_name?: string;
@@ -30,45 +26,58 @@ type ProductResponse = {
     product?: Product;
 };
 
-const getToday = () => {
-    const date = new Date();
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-
-    return `${year}-${month}-${day}`;
+type PackageAmount = {
+    quantity: string;
+    unit: string;
 };
 
-const isValidDate = (value: string) => {
-    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+/**
+ * Convert the package quantity returned by Open Food Facts into a quantity
+ * and a unit supported by the Add Food form.
+ */
+const getPackageAmount = (value?: string): PackageAmount => {
+    if (!value) return { quantity: '1', unit: 'Pack' };
 
-    if (!match) return false;
+    const match = value.match(/(\d+(?:[.,]\d+)?)\s*(kg|g|ml|l|pcs?|pieces?|pack)?/i);
 
-    const [, year, month, day] = match;
-    const date = new Date(Number(year), Number(month) - 1, Number(day));
+    if (!match) return { quantity: '1', unit: 'Pack' };
 
-    return (
-        date.getFullYear() === Number(year) &&
-        date.getMonth() === Number(month) - 1 &&
-        date.getDate() === Number(day)
-    );
-};
+    const rawUnit = (match[2] || 'pack').toLowerCase();
+    let unit = 'Pack';
 
-const getPackageAmount = (value?: string) => {
-    if (!value) return { quantity: '1', unit: 'pack' };
-
-    const match = value.match(
-        /(\d+(?:[.,]\d+)?)\s*(kg|g|ml|l|pcs?)?/i
-    );
-
-    if (!match) return { quantity: '1', unit: 'pack' };
-
-    const unit = (match[2] || 'pack').toLowerCase();
+    if (rawUnit === 'kg') {
+        unit = 'kg';
+    } else if (rawUnit === 'g') {
+        unit = 'g';
+    } else if (rawUnit === 'ml') {
+        unit = 'ml';
+    } else if (rawUnit === 'l') {
+        unit = 'L';
+    } else if (['pc', 'pcs', 'piece', 'pieces'].includes(rawUnit)) {
+        unit = 'Pieces';
+    }
 
     return {
         quantity: match[1].replace(',', '.'),
-        unit: unit === 'pc' ? 'pcs' : unit,
+        unit,
     };
+};
+
+/**
+ * Normalize the unit to one of the options currently supported by
+ * AddFoodModal. Unsupported or blank values use Pack as a safe fallback.
+ */
+const normalizeUnit = (value: string): string => {
+    const normalized = value.trim().toLowerCase();
+
+    if (normalized === 'kg') return 'kg';
+    if (normalized === 'g') return 'g';
+    if (normalized === 'ml') return 'ml';
+    if (normalized === 'l') return 'L';
+    if (['pc', 'pcs', 'piece', 'pieces'].includes(normalized)) return 'Pieces';
+    if (['pack', 'packs'].includes(normalized)) return 'Pack';
+
+    return 'Pack';
 };
 
 export default function FoodScannerScreen() {
@@ -80,22 +89,15 @@ export default function FoodScannerScreen() {
     const [product, setProduct] = useState<Product | null>(null);
 
     const [isSearching, setIsSearching] = useState(false);
-    const [isSaving, setIsSaving] = useState(false);
 
     const [foodName, setFoodName] = useState('');
     const [category, setCategory] = useState('');
     const [quantity, setQuantity] = useState('1');
-    const [unit, setUnit] = useState('pcs');
-    const [purchaseDate, setPurchaseDate] = useState(getToday());
-    const [expiryDate, setExpiryDate] = useState('');
-    const [storageLocation, setStorageLocation] =
-        useState<StorageLocation>('Fridge');
+    const [unit, setUnit] = useState('Pieces');
 
     const [message, setMessage] = useState('');
-    const [successMessage, setSuccessMessage] = useState('');
-    const [isSaved, setIsSaved] = useState(false);
 
-    // Search Open Food Facts using the scanned barcode.
+    // Look up the scanned barcode in the Open Food Facts product database.
     const lookupProduct = async (code: string) => {
         setIsSearching(true);
         setMessage('');
@@ -125,21 +127,20 @@ export default function FoodScannerScreen() {
             }
 
             setProduct(foundProduct);
-            setFoodName(foundProduct.product_name || '');
-
+            setFoodName(foundProduct.product_name);
             setCategory(
                 foundProduct.categories?.split(',')[0]?.trim() || 'Other'
             );
 
             const amount = getPackageAmount(foundProduct.quantity);
-
             setQuantity(amount.quantity);
             setUnit(amount.unit);
 
-            setMessage('Product details loaded. Please check and complete the form.');
+            setMessage(
+                'Product details loaded. Check the details and continue to the Add Food form.'
+            );
         } catch (error) {
             console.error('Product lookup failed:', error);
-
             setMessage(
                 'Could not retrieve product details. You can enter them manually.'
             );
@@ -166,29 +167,22 @@ export default function FoodScannerScreen() {
         void lookupProduct(data);
     };
 
-    // Reset the scanner and form for another product.
+    // Reset the scanner and product fields to scan another item.
     const handleScanAgain = () => {
         setHasScanned(false);
         setBarcode('');
         setProduct(null);
-
         setFoodName('');
         setCategory('');
         setQuantity('1');
-        setUnit('pcs');
-        setPurchaseDate(getToday());
-        setExpiryDate('');
-        setStorageLocation('Fridge');
-
+        setUnit('Pieces');
         setMessage('');
-        setSuccessMessage('');
-        setIsSaved(false);
     };
 
-    // Save the food item to the signed-in user's Supabase inventory.
-    const handleSaveToInventory = async () => {
-        if (isSaving || isSaved) return;
-
+    // Return the scanned details to the dashboard. The dashboard will open
+    // AddFoodModal with these values, and the existing inventory service will
+    // handle the actual Supabase insert after the user confirms the form.
+    const handleContinueToAddFood = () => {
         const cleanName = foodName.trim();
         const cleanCategory = category.trim();
         const numericQuantity = Number(quantity);
@@ -213,71 +207,16 @@ export default function FoodScannerScreen() {
             return;
         }
 
-        if (!isValidDate(purchaseDate)) {
-            setMessage('Enter a valid purchase date using YYYY-MM-DD.');
-            return;
-        }
-
-        if (!isValidDate(expiryDate)) {
-            setMessage('Enter a valid expiry date using YYYY-MM-DD.');
-            return;
-        }
-
-        if (purchaseDate > expiryDate) {
-            setMessage('Expiry date cannot be earlier than purchase date.');
-            return;
-        }
-
-        setIsSaving(true);
-        setMessage('');
-        setSuccessMessage('');
-
-        try {
-            // Get the currently authenticated user.
-            const {
-                data: { user },
-                error: authError,
-            } = await supabase.auth.getUser();
-
-            if (authError) throw authError;
-
-            if (!user) {
-                throw new Error('Please sign in before adding food to your inventory.');
-            }
-
-            // Database uses snake_case column names.
-            // id and created_at are generated by PostgreSQL.
-            const { error: insertError } = await supabase
-                .from('food_items')
-                .insert({
-                    user_id: user.id,
-                    name: cleanName,
-                    category: cleanCategory,
-                    quantity: numericQuantity,
-                    unit: unit.trim(),
-                    purchase_date: purchaseDate,
-                    expiry_date: expiryDate,
-                    storage_location: storageLocation,
-                });
-
-            if (insertError) throw insertError;
-
-            setIsSaved(true);
-            setSuccessMessage(
-                `${cleanName} was successfully added to your inventory!`
-            );
-        } catch (error) {
-            console.error('Failed to save food item:', error);
-
-            const errorMessage =
-                error instanceof Error
-                    ? error.message
-                    : 'Unable to save this food item. Please try again.';
-
-            setMessage(errorMessage);
-        } finally {
-            setIsSaving(false);
-        }
+        router.replace({
+            pathname: '/dashboard',
+            params: {
+                scanResultId: String(Date.now()),
+                scannedName: cleanName,
+                scannedCategory: cleanCategory,
+                scannedQuantity: String(numericQuantity),
+                scannedUnit: normalizeUnit(unit),
+            },
+        });
     };
 
     if (!permission) {
@@ -401,10 +340,10 @@ export default function FoodScannerScreen() {
                     </View>
                 )}
 
-                {/* Editable product form */}
-                {hasScanned && !isSearching && !isSaved && (
+                {/* Editable product details */}
+                {hasScanned && !isSearching && (
                     <View style={styles.formCard}>
-                        <Text style={styles.formTitle}>Food Details</Text>
+                        <Text style={styles.formTitle}>Product Details</Text>
 
                         <Text style={styles.label}>Food Name *</Text>
                         <TextInput
@@ -435,51 +374,9 @@ export default function FoodScannerScreen() {
                             <TextInput
                                 value={unit}
                                 onChangeText={setUnit}
-                                placeholder="g, kg, ml, pcs..."
+                                placeholder="Pieces, g, kg, ml, L, Pack"
                                 style={[styles.input, styles.unitInput]}
                             />
-                        </View>
-
-                        <Text style={styles.label}>Purchase Date * (YYYY-MM-DD)</Text>
-                        <TextInput
-                            value={purchaseDate}
-                            onChangeText={setPurchaseDate}
-                            placeholder="2026-11-16"
-                            style={styles.input}
-                            autoCapitalize="none"
-                        />
-
-                        <Text style={styles.label}>Expiry Date * (YYYY-MM-DD)</Text>
-                        <TextInput
-                            value={expiryDate}
-                            onChangeText={setExpiryDate}
-                            placeholder="2026-11-25"
-                            style={styles.input}
-                            autoCapitalize="none"
-                        />
-
-                        <Text style={styles.label}>Storage Location *</Text>
-
-                        <View style={styles.locationRow}>
-                            {(['Fridge', 'Freezer', 'Pantry'] as const).map((location) => (
-                                <Pressable
-                                    key={location}
-                                    onPress={() => setStorageLocation(location)}
-                                    style={[
-                                        styles.locationButton,
-                                        storageLocation === location && styles.locationSelected,
-                                    ]}
-                                >
-                                    <Text
-                                        style={[
-                                            styles.locationText,
-                                            storageLocation === location && styles.locationTextSelected,
-                                        ]}
-                                    >
-                                        {location}
-                                    </Text>
-                                </Pressable>
-                            ))}
                         </View>
 
                         {message ? (
@@ -489,47 +386,22 @@ export default function FoodScannerScreen() {
                         ) : null}
 
                         <Pressable
-                            style={[
-                                styles.primaryButton,
-                                isSaving && styles.disabledButton,
-                            ]}
-                            disabled={isSaving}
-                            onPress={() => void handleSaveToInventory()}
-                        >
-                            {isSaving ? (
-                                <ActivityIndicator color="#FFFFFF" />
-                            ) : (
-                                <Text style={styles.primaryButtonText}>
-                                    Add to Inventory
-                                </Text>
-                            )}
-                        </Pressable>
-                    </View>
-                )}
-
-                {/* Saved successfully */}
-                {isSaved && (
-                    <View style={styles.successCard}>
-                        <Text style={styles.successIcon}>✓</Text>
-                        <Text style={styles.successTitle}>Successfully Saved!</Text>
-                        <Text style={styles.successText}>{successMessage}</Text>
-
-                        <Text style={styles.savedDetails}>
-                            Your food item is now stored in your Supabase account.
-                        </Text>
-
-                        <Pressable
                             style={styles.primaryButton}
-                            onPress={() => router.replace('/dashboard')}
+                            onPress={handleContinueToAddFood}
                         >
                             <Text style={styles.primaryButtonText}>
-                                Back to Dashboard
+                                Continue to Add Food
                             </Text>
                         </Pressable>
+
+                        <Text style={styles.helperText}>
+                            You can enter the purchase date, expiry date and storage
+                            location in the next form.
+                        </Text>
                     </View>
                 )}
 
-                {message && !isSearching && !isSaved && !hasScanned ? (
+                {message && !isSearching && !hasScanned ? (
                     <View style={styles.messageCard}>
                         <Text style={styles.messageText}>{message}</Text>
                     </View>
@@ -708,32 +580,6 @@ const styles = StyleSheet.create({
     unitInput: {
         flex: 1,
     },
-    locationRow: {
-        flexDirection: 'row',
-        gap: 8,
-        marginTop: 3,
-    },
-    locationButton: {
-        flex: 1,
-        borderWidth: 1,
-        borderColor: '#DCE9DF',
-        backgroundColor: '#F8FAF8',
-        borderRadius: 9,
-        paddingVertical: 12,
-        alignItems: 'center',
-    },
-    locationSelected: {
-        backgroundColor: '#16834A',
-        borderColor: '#16834A',
-    },
-    locationText: {
-        color: '#52685A',
-        fontSize: 12,
-        fontWeight: '700',
-    },
-    locationTextSelected: {
-        color: '#FFFFFF',
-    },
     messageCard: {
         backgroundColor: '#FFF8E7',
         borderRadius: 10,
@@ -760,9 +606,6 @@ const styles = StyleSheet.create({
         fontSize: 15,
         fontWeight: '800',
     },
-    disabledButton: {
-        opacity: 0.6,
-    },
     secondaryButton: {
         borderWidth: 1,
         borderColor: '#16834A',
@@ -781,38 +624,12 @@ const styles = StyleSheet.create({
         fontSize: 13,
         marginTop: 12,
     },
-    successCard: {
-        backgroundColor: '#FFFFFF',
-        borderWidth: 1,
-        borderColor: '#B8E5C7',
-        borderRadius: 16,
-        padding: 22,
-        marginTop: 12,
-        alignItems: 'center',
-    },
-    successIcon: {
-        fontSize: 48,
-        fontWeight: '800',
-        color: '#16834A',
-    },
-    successTitle: {
-        fontSize: 21,
-        fontWeight: '800',
-        color: '#153D28',
-        marginTop: 8,
-    },
-    successText: {
-        color: '#16834A',
-        fontSize: 14,
-        textAlign: 'center',
-        marginTop: 10,
-        lineHeight: 21,
-    },
-    savedDetails: {
+    helperText: {
         color: '#647568',
         fontSize: 12,
+        lineHeight: 18,
         textAlign: 'center',
-        marginTop: 10,
+        marginTop: 12,
     },
     permissionIcon: {
         fontSize: 48,
