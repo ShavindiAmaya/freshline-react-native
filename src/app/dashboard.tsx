@@ -10,10 +10,12 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Image } from 'expo-image';
 import { SymbolView } from 'expo-symbols';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -23,7 +25,6 @@ import { BottomNav } from '@/components/dashboard/BottomNav';
 import { ExpiringSoonList } from '@/components/dashboard/ExpiringSoonList';
 import { Header } from '@/components/dashboard/Header';
 import { ManageOptionsModal } from '@/components/dashboard/ManageOptionsModal';
-import { MotivationalCard } from '@/components/dashboard/MotivationalCard';
 import { QuickActions } from '@/components/dashboard/QuickActions';
 import { SummaryCards } from '@/components/dashboard/SummaryCards';
 
@@ -48,6 +49,15 @@ import {
   markItemAsUsed,
   updateFoodItem,
 } from '@/features/inventory/services/inventory.service';
+import {
+  cancelAllExpiryNotifications,
+  cancelProductNotifications,
+  requestNotificationPermission,
+  scheduleExpiryNotifications,
+  sendTestNotification,
+  syncExpiryNotifications,
+  testAllExpiryNotifications,
+} from '@/features/notifications/services/notification.service';
 import {
   DietaryPreference,
   getProfile,
@@ -108,6 +118,9 @@ export default function FreshLineHomeScreen() {
   // Modals & Feedback State
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
+  const [hasNotificationPermission, setHasNotificationPermission] = useState<boolean | null>(null);
+  const [isNotificationsEnabled, setIsNotificationsEnabled] = useState(true);
+  const [isSendingTestNotif, setIsSendingTestNotif] = useState(false);
   const [toast, setToast] = useState<{
     message: string;
     type: 'success' | 'error' | 'info';
@@ -259,6 +272,11 @@ export default function FreshLineHomeScreen() {
       setFoodItems(items);
       setInventoryOptions(options);
 
+      // Sync upcoming expiry local notifications on device for current user
+      if (Platform.OS !== 'web' && authUser?.id) {
+        void syncExpiryNotifications(items, authUser.id);
+      }
+
       const activeItems = items.filter((i) => !i.isUsed);
       const expiringItems = items.filter(
         (i) =>
@@ -294,6 +312,80 @@ export default function FreshLineHomeScreen() {
       setIsInventoryLoading(false);
     }
   }, [authUser?.id]);
+
+  // Check notification permission on mount without repeatedly prompting
+  useEffect(() => {
+    if (Platform.OS !== 'web') {
+      void requestNotificationPermission(false).then((granted) => {
+        setHasNotificationPermission(granted);
+      });
+    }
+    void AsyncStorage.getItem('@freshline_notifications_enabled').then((val) => {
+      if (val === 'false') {
+        setIsNotificationsEnabled(false);
+      }
+    });
+  }, []);
+
+  // Toggle notifications ON / OFF
+  const handleToggleNotifications = async (value: boolean) => {
+    setIsNotificationsEnabled(value);
+    await AsyncStorage.setItem('@freshline_notifications_enabled', String(value));
+
+    if (value) {
+      if (Platform.OS !== 'web') {
+        const granted = await requestNotificationPermission(true);
+        setHasNotificationPermission(granted);
+        if (granted) {
+          triggerToast('🔔 Expiry notifications enabled!');
+          if (authUser?.id && foodItems.length > 0) {
+            void syncExpiryNotifications(foodItems, authUser.id);
+          }
+        } else {
+          setIsNotificationsEnabled(false);
+          await AsyncStorage.setItem('@freshline_notifications_enabled', 'false');
+          triggerToast('Notification permission denied in device settings.', 'error');
+        }
+      } else {
+        triggerToast('🔔 Expiry notifications enabled!');
+      }
+    } else {
+      if (Platform.OS !== 'web' && authUser?.id) {
+        await cancelAllExpiryNotifications(authUser.id);
+      }
+      triggerToast('🔕 Expiry notifications paused');
+    }
+  };
+
+  // Send a test notification in 10 seconds
+  const handleTestNotification = async () => {
+    if (isSendingTestNotif) return;
+    setIsSendingTestNotif(true);
+    try {
+      await sendTestNotification();
+      setHasNotificationPermission(true);
+      triggerToast('🔔 Test reminder scheduled in 10s! Close or lock device to test.');
+    } catch (err: any) {
+      console.error('Test notification failed:', err);
+      triggerToast(err?.message || 'Failed to schedule test notification.', 'error');
+    } finally {
+      setIsSendingTestNotif(false);
+    }
+  };
+
+  // Enable notifications prompt
+  const handleEnableNotifications = async () => {
+    const granted = await requestNotificationPermission(true);
+    setHasNotificationPermission(granted);
+    if (granted) {
+      triggerToast('🔔 Expiry notifications enabled!');
+      if (authUser?.id && foodItems.length > 0) {
+        void syncExpiryNotifications(foodItems, authUser.id);
+      }
+    } else {
+      triggerToast('Notification permission was not granted.', 'error');
+    }
+  };
 
   // Prefer the database name, then fall back to Supabase Auth metadata.
   const metadataDisplayName =
@@ -516,6 +608,19 @@ export default function FreshLineHomeScreen() {
 
     try {
       await markItemAsUsed(id, willBeUsed);
+
+      // Notification update
+      if (Platform.OS !== 'web') {
+        if (willBeUsed) {
+          void cancelProductNotifications(id, authUser?.id);
+        } else if (authUser?.id) {
+          void scheduleExpiryNotifications(
+            { ...targetItem, isUsed: false },
+            authUser.id
+          );
+        }
+      }
+
       triggerToast(
         willBeUsed
           ? `🎉 Marked "${targetItem.name}" as used!`
@@ -565,6 +670,14 @@ export default function FreshLineHomeScreen() {
         setFoodItems((prev) =>
           prev.map((item) => (item.id === updatedItem.id ? updatedItem : item))
         );
+
+        // Cancel old notifications and reschedule with updated expiry date
+        if (Platform.OS !== 'web' && authUser?.id) {
+          void cancelProductNotifications(updatedItem.id, authUser.id).then(() => {
+            void scheduleExpiryNotifications(updatedItem, authUser.id);
+          });
+        }
+
         triggerToast(`Updated "${updatedItem.name}"`);
       } else {
         // Add new item
@@ -579,6 +692,12 @@ export default function FreshLineHomeScreen() {
         });
 
         setFoodItems((prev) => [createdItem, ...prev]);
+
+        // Schedule upcoming notifications for newly added item
+        if (Platform.OS !== 'web' && authUser?.id) {
+          void scheduleExpiryNotifications(createdItem, authUser.id);
+        }
+
         setStats((prev) => ({
           ...prev,
           total_items: prev.total_items + 1,
@@ -607,6 +726,12 @@ export default function FreshLineHomeScreen() {
       try {
         await deleteFoodItem(item.id);
         setFoodItems((prev) => prev.filter((i) => i.id !== item.id));
+
+        // Cancel scheduled notifications for deleted item
+        if (Platform.OS !== 'web') {
+          void cancelProductNotifications(item.id, authUser?.id);
+        }
+
         setStats((prev) => ({
           ...prev,
           total_items: Math.max(0, prev.total_items - 1),
@@ -691,6 +816,9 @@ export default function FreshLineHomeScreen() {
 
     setIsSigningOut(true);
     try {
+      if (Platform.OS !== 'web' && authUser?.id) {
+        await cancelAllExpiryNotifications(authUser.id);
+      }
       await signOut();
       router.replace('/auth-preview');
     } catch (error: any) {
@@ -1085,33 +1213,6 @@ export default function FreshLineHomeScreen() {
               })}
             </View>
           )}
-
-          {/* Quick Switch Hint between Unused and Used */}
-          {inventoryStatusTab === 'unused' && usedItems.length > 0 && (
-            <Pressable
-              onPress={() => setInventoryStatusTab('used')}
-              style={styles.switchTabHintCard}>
-              <Text style={styles.switchTabHintText}>
-                Looking for consumed items? View {usedItems.length} Used item{usedItems.length === 1 ? '' : 's'} →
-              </Text>
-            </Pressable>
-          )}
-
-          {inventoryStatusTab === 'used' && (
-            <Pressable
-              onPress={() => setInventoryStatusTab('unused')}
-              style={styles.switchTabHintCard}>
-              <Text style={styles.switchTabHintText}>
-                ← Return to {unusedItems.length} Unused item{unusedItems.length === 1 ? '' : 's'} in stock
-              </Text>
-            </Pressable>
-          )}
-
-          <Pressable
-            onPress={() => setActiveTab('home')}
-            style={styles.backHomeBtn}>
-            <Text style={styles.backHomeBtnText}>← Return to Dashboard</Text>
-          </Pressable>
         </View>
       );
     }
@@ -1180,12 +1281,6 @@ export default function FreshLineHomeScreen() {
               Explore More FreshLine Features →
             </Text>
           </Pressable>
-
-          <Pressable
-            onPress={() => setActiveTab('home')}
-            style={styles.backHomeBtn}>
-            <Text style={styles.backHomeBtnText}>← Return to Dashboard</Text>
-          </Pressable>
         </View>
       );
     }
@@ -1197,19 +1292,10 @@ export default function FreshLineHomeScreen() {
             <View>
               <Text style={styles.tabTitle}>Waste Prevention Insights</Text>
               <Text style={styles.tabSubtitle}>
-                Sample household statistics • Demo Data - Connection Pending
+                Household waste reduction and sustainability impact
               </Text>
             </View>
           </View>
-
-          <MotivationalCard
-            foodSavedCount={stats.food_saved}
-            co2SavedKg={stats.co2_saved_kg}
-            moneySavedUsd={stats.money_saved_usd}
-            onPressLearnMore={() =>
-              triggerToast('Detailed weekly reports available once backend is connected')
-            }
-          />
 
           <View style={styles.insightBox}>
             <Text style={styles.insightTitle}>💡 Food Saving Tip</Text>
@@ -1218,12 +1304,6 @@ export default function FreshLineHomeScreen() {
               flavor and extend freshness by up to 4 days!
             </Text>
           </View>
-
-          <Pressable
-            onPress={() => setActiveTab('home')}
-            style={styles.backHomeBtn}>
-            <Text style={styles.backHomeBtnText}>← Return to Dashboard</Text>
-          </Pressable>
         </View>
       );
     }
@@ -1461,6 +1541,62 @@ export default function FreshLineHomeScreen() {
             </Pressable>
           </View>
 
+          {/* Food Expiry Notifications */}
+          <View style={styles.settingsSectionCard}>
+            <Text style={styles.sectionHeaderTitle}>Food Expiry Notifications</Text>
+            <Text style={styles.sectionSubtitle}>
+              FreshLine sends automatic reminders 3 days before, 1 day before, and at 9:00 AM on expiry day.
+            </Text>
+
+            {Platform.OS === 'web' ? (
+              <View style={styles.notifWebNotice}>
+                <Text style={styles.notifWebNoticeText}>
+                  ℹ️ Local push notifications are supported on Android and iOS mobile devices.
+                </Text>
+              </View>
+            ) : (
+              <>
+                {!hasNotificationPermission && (
+                  <View style={styles.notifDisabledBanner}>
+                    <Text style={styles.notifDisabledText}>
+                      ⚠️ Notification permissions are currently disabled.
+                    </Text>
+                    <Pressable
+                      onPress={handleEnableNotifications}
+                      style={styles.notifEnableBtn}>
+                      <Text style={styles.notifEnableBtnText}>Enable</Text>
+                    </Pressable>
+                  </View>
+                )}
+
+                <View style={styles.notifToggleContainer}>
+                  <View style={styles.notifToggleTextWrapper}>
+                    <Text style={styles.notifToggleTitle}>Expiry Notifications</Text>
+                    <Text style={styles.notifToggleSubtitle}>
+                      {isNotificationsEnabled
+                        ? 'Active • Alerts for expiring food'
+                        : 'Disabled • Alerts paused'}
+                    </Text>
+                  </View>
+                  <Switch
+                    value={isNotificationsEnabled}
+                    onValueChange={handleToggleNotifications}
+                    trackColor={{ false: '#CBD5E1', true: '#86EFAC' }}
+                    thumbColor={isNotificationsEnabled ? '#16A34A' : '#F8FAFC'}
+                  />
+                </View>
+
+                <Pressable
+                  onPress={testAllExpiryNotifications}
+                  style={styles.saveBtn}>
+                  <Text style={styles.saveBtnText}>
+                    🔔 Send Test Notifications
+                  </Text>
+                </Pressable>
+              </>
+            )}
+          </View>
+
           {/* Sign Out Button */}
           <Pressable
             accessibilityRole="button"
@@ -1474,11 +1610,6 @@ export default function FreshLineHomeScreen() {
             <Text style={styles.signOutButtonText}>
               {isSigningOut ? 'Signing out...' : 'Sign Out'}
             </Text>
-          </Pressable>
-
-          {/* Return to Dashboard */}
-          <Pressable onPress={() => setActiveTab('home')} style={styles.backHomeBtn}>
-            <Text style={styles.backHomeBtnText}>← Return to Dashboard</Text>
           </Pressable>
         </View>
       );
@@ -1516,17 +1647,13 @@ export default function FreshLineHomeScreen() {
           onPressItem={handlePressFoodItem}
           onPressViewAll={handleViewInventory}
         />
-
-        {/* 4. Motivational Card */}
-        <MotivationalCard
-          foodSavedCount={stats.food_saved}
-          co2SavedKg={stats.co2_saved_kg}
-          moneySavedUsd={stats.money_saved_usd}
-          onPressLearnMore={() => setActiveTab('insights')}
-        />
       </>
     );
   };
+
+  const todayExpiringItems = foodItems.filter(
+    (i) => !i.isUsed && getDaysRemaining(i.expiryDate) === 0
+  );
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
@@ -1540,7 +1667,7 @@ export default function FreshLineHomeScreen() {
         {/* Header with FreshLine branding, greeting, avatar & notification */}
         <Header
           user={userProfile}
-          unreadCount={stats.expiring_soon}
+          unreadCount={todayExpiringItems.length}
           onPressNotification={() => setIsNotificationOpen(true)}
           onPressAvatar={() => setActiveTab('profile')}
         />
@@ -1556,7 +1683,7 @@ export default function FreshLineHomeScreen() {
       <BottomNav
         activeTab={activeTab}
         onSelectTab={handleSelectTab}
-        unreadCount={stats.expiring_soon}
+        unreadCount={todayExpiringItems.length}
       />
 
       {/* Add / Edit Food Modal Sheet */}
@@ -1595,30 +1722,81 @@ export default function FreshLineHomeScreen() {
           <View style={styles.notificationCard}>
             <View style={styles.notificationHeader}>
               <Text style={styles.notificationTitle}>
-                🔔 Freshness Alerts ({stats.expiring_soon})
+                🔔 Freshness Alerts ({todayExpiringItems.length})
               </Text>
               <Pressable onPress={() => setIsNotificationOpen(false)}>
                 <Text style={styles.closeNotificationText}>✕</Text>
               </Pressable>
             </View>
 
-            <View style={styles.notificationItemUrgent}>
-              <Text style={styles.notifIcon}>🥛</Text>
-              <View style={styles.notifContent}>
-                <Text style={styles.notifItemName}>Milk expires today!</Text>
-                <Text style={styles.notifSub}>
-                  Use today in coffee, cereal or custard
+            {/* Notification Enable / Disable Toggle Switch */}
+            <View style={styles.notifToggleContainer}>
+              <View style={styles.notifToggleTextWrapper}>
+                <Text style={styles.notifToggleTitle}>Expiry Notifications</Text>
+                <Text style={styles.notifToggleSubtitle}>
+                  {isNotificationsEnabled
+                    ? 'Active • Alerts for expiring food'
+                    : 'Disabled • Alerts paused'}
                 </Text>
               </View>
+              <Switch
+                value={isNotificationsEnabled}
+                onValueChange={handleToggleNotifications}
+                trackColor={{ false: '#CBD5E1', true: '#86EFAC' }}
+                thumbColor={isNotificationsEnabled ? '#16A34A' : '#F8FAFC'}
+              />
             </View>
 
-            <View style={styles.notificationItemSoon}>
-              <Text style={styles.notifIcon}>🍗</Text>
-              <View style={styles.notifContent}>
-                <Text style={styles.notifItemName}>Chicken expires tomorrow</Text>
-                <Text style={styles.notifSub}>Marinate or freeze to preserve</Text>
+            {Platform.OS !== 'web' && !hasNotificationPermission && isNotificationsEnabled && (
+              <View style={styles.notifDisabledBanner}>
+                <Text style={styles.notifDisabledText}>
+                  ⚠️ Push notifications disabled on this device.
+                </Text>
+                <Pressable
+                  onPress={handleEnableNotifications}
+                  style={styles.notifEnableBtn}>
+                  <Text style={styles.notifEnableBtnText}>Enable</Text>
+                </Pressable>
               </View>
-            </View>
+            )}
+
+            {todayExpiringItems.length > 0 ? (
+              <ScrollView
+                style={{ maxHeight: 250, marginBottom: 12 }}
+                showsVerticalScrollIndicator={false}>
+                {todayExpiringItems.map((item) => (
+                  <View key={item.id} style={styles.notificationItemUrgent}>
+                    <Text style={styles.notifIcon}>⚠️</Text>
+                    <View style={styles.notifContent}>
+                      <Text style={styles.notifItemName}>
+                        {item.name} expires today!
+                      </Text>
+                      <Text style={styles.notifSub}>
+                        {item.quantity} {item.unit} in {item.storageLocation}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </ScrollView>
+            ) : (
+              <View style={styles.notifEmptyBox}>
+                <Text style={styles.notifEmptyIcon}>🎉</Text>
+                <Text style={styles.notifEmptyTitle}>All Fresh Today!</Text>
+                <Text style={styles.notifEmptySub}>
+                  No items are expiring today in your kitchen.
+                </Text>
+              </View>
+            )}
+
+            {Platform.OS !== 'web' && (
+              <Pressable
+                style={styles.notifTestBtn}
+                onPress={testAllExpiryNotifications}>
+                <Text style={styles.notifTestBtnText}>
+                  🔔 Send Test Notifications
+                </Text>
+              </Pressable>
+            )}
 
             <Pressable
               style={styles.notifDoneBtn}
@@ -2137,6 +2315,112 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: '#FFFFFF',
+  },
+  notifToggleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 12,
+  },
+  notifToggleTextWrapper: {
+    flex: 1,
+    marginRight: 10,
+  },
+  notifToggleTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  notifToggleSubtitle: {
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 1,
+  },
+  notifDisabledBanner: {
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  notifDisabledText: {
+    fontSize: 12,
+    color: '#92400E',
+    fontWeight: '500',
+    flex: 1,
+  },
+  notifEnableBtn: {
+    backgroundColor: '#D97706',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
+  },
+  notifEnableBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  notifEmptyBox: {
+    alignItems: 'center',
+    paddingVertical: 20,
+  },
+  notifEmptyIcon: {
+    fontSize: 28,
+    marginBottom: 6,
+  },
+  notifEmptyTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  notifEmptySub: {
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  notifTestBtn: {
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: FreshTheme.borderRadius.md,
+    paddingVertical: 10,
+    alignItems: 'center',
+    marginBottom: 8,
+    marginTop: 6,
+  },
+  notifTestBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#334155',
+  },
+  notifWebNotice: {
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 8,
+    padding: 12,
+  },
+  notifWebNoticeText: {
+    fontSize: 12,
+    color: '#64748B',
+    lineHeight: 18,
+  },
+  sectionSubtitle: {
+    fontSize: 12,
+    color: '#64748B',
+    lineHeight: 18,
+    marginBottom: 12,
   },
   // Kitchen Inventory Screen Styles
   inventoryHeaderRow: {

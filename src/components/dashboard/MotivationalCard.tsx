@@ -27,10 +27,10 @@ export function MotivationalCard({
           <View style={styles.headerRow}>
             <View style={styles.badgeRow}>
               <View style={styles.impactDot} />
-              <Text style={styles.badgeLabel}>DEMO IMPACT PREVIEW</Text>
+              <Text style={styles.badgeLabel}>HOUSEHOLD IMPACT</Text>
             </View>
             <View style={styles.starPill}>
-              <Text style={styles.starText}>⭐ Demo Preview</Text>
+              <Text style={styles.starText}>⭐ Sustainability</Text>
             </View>
           </View>
 
@@ -40,8 +40,7 @@ export function MotivationalCard({
           </Text>
 
           <Text style={styles.subtext}>
-            Sample metrics illustrating waste prevented and money saved. Real-time
-            statistics will update automatically once backend is connected.
+            Tracked metrics illustrating waste prevented, emissions reduced, and groceries saved.
           </Text>
 
           {/* Impact Stats Grid */}
