@@ -1,27 +1,27 @@
-import React, { useEffect, useState } from 'react';
+import type { User } from '@supabase/supabase-js';
+import { Redirect, useRouter } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import { useEffect, useState } from 'react';
 import {
-  View,
-  Text,
-  ScrollView,
-  StyleSheet,
-  Platform,
+  ActivityIndicator,
   Alert,
   Modal,
+  Platform,
   Pressable,
-  ActivityIndicator,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from 'react-native';
-import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Redirect, useRouter } from 'expo-router';
-import type { User } from '@supabase/supabase-js';
 
-import { Header } from '@/components/dashboard/Header';
-import { SummaryCards } from '@/components/dashboard/SummaryCards';
-import { ExpiringSoonList } from '@/components/dashboard/ExpiringSoonList';
-import { QuickActions } from '@/components/dashboard/QuickActions';
-import { MotivationalCard } from '@/components/dashboard/MotivationalCard';
-import { BottomNav } from '@/components/dashboard/BottomNav';
 import { AddFoodModal } from '@/components/dashboard/AddFoodModal';
+import { BottomNav } from '@/components/dashboard/BottomNav';
+import { ExpiringSoonList } from '@/components/dashboard/ExpiringSoonList';
+import { Header } from '@/components/dashboard/Header';
+import { MotivationalCard } from '@/components/dashboard/MotivationalCard';
+import { QuickActions } from '@/components/dashboard/QuickActions';
+import { SummaryCards } from '@/components/dashboard/SummaryCards';
 
 import { FreshTheme } from '@/constants/freshline-theme';
 import {
@@ -29,12 +29,13 @@ import {
   INITIAL_SUMMARY_STATS,
   INITIAL_USER_PROFILE,
 } from '@/data/mock-food-data';
-import { DashboardTab, DashboardFoodItem, FoodSummaryStats } from '@/types/food';
 import {
   getCurrentSession,
-  subscribeToAuthChanges,
   signOut,
+  subscribeToAuthChanges,
 } from '@/features/auth/services/auth.service';
+import { supabase } from '@/lib/supabase';
+import { DashboardFoodItem, DashboardTab, FoodSummaryStats } from '@/types/food';
 
 export default function FreshLineHomeScreen() {
   const router = useRouter();
@@ -43,6 +44,13 @@ export default function FreshLineHomeScreen() {
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [isSigningOut, setIsSigningOut] = useState(false);
+
+  // Database-backed profile state
+  const [databaseDisplayName, setDatabaseDisplayName] = useState<string | null>(
+    null
+  );
+  const [isProfileLoading, setIsProfileLoading] = useState(false);
+  const [profileLoadError, setProfileLoadError] = useState<string | null>(null);
 
   // Dashboard state
   const [activeTab, setActiveTab] = useState<DashboardTab>('home');
@@ -90,12 +98,87 @@ export default function FreshLineHomeScreen() {
     };
   }, []);
 
-  // Use the authenticated user's name instead of the dashboard demo name.
-  const metadataDisplayName = authUser?.user_metadata?.display_name;
-  const legacyFullName = authUser?.user_metadata?.full_name;
+  // Load the signed-in user's profile from the shared Supabase profiles table.
+  useEffect(() => {
+    let isActive = true;
+
+    if (!authUser?.id) {
+      setDatabaseDisplayName(null);
+      setIsProfileLoading(false);
+      setProfileLoadError(null);
+
+      return () => {
+        isActive = false;
+      };
+    }
+
+    const loadDatabaseProfile = async () => {
+      setIsProfileLoading(true);
+      setProfileLoadError(null);
+
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('display_name')
+          .eq('id', authUser.id)
+          .maybeSingle();
+
+        if (error) {
+          throw error;
+        }
+
+        if (!isActive) return;
+
+        const name =
+          typeof data?.display_name === 'string'
+            ? data.display_name.trim()
+            : '';
+
+        setDatabaseDisplayName(name || null);
+
+        if (!name) {
+          setProfileLoadError(
+            'Profile record not found. Showing account name instead.'
+          );
+        }
+      } catch (error) {
+        console.error('Failed to load database profile:', error);
+
+        if (isActive) {
+          setDatabaseDisplayName(null);
+          setProfileLoadError(
+            'Could not load profile details. Showing account name instead.'
+          );
+        }
+      } finally {
+        if (isActive) {
+          setIsProfileLoading(false);
+        }
+      }
+    };
+
+    void loadDatabaseProfile();
+
+    return () => {
+      isActive = false;
+    };
+  }, [authUser?.id]);
+
+  // Prefer the database name, then fall back to Supabase Auth metadata.
+  const metadataDisplayName =
+    typeof authUser?.user_metadata?.display_name === 'string'
+      ? authUser.user_metadata.display_name.trim()
+      : '';
+
+  const legacyFullName =
+    typeof authUser?.user_metadata?.full_name === 'string'
+      ? authUser.user_metadata.full_name.trim()
+      : '';
+
   const displayName =
-    (typeof metadataDisplayName === 'string' && metadataDisplayName.trim()) ||
-    (typeof legacyFullName === 'string' && legacyFullName.trim()) ||
+    databaseDisplayName ||
+    metadataDisplayName ||
+    legacyFullName ||
     authUser?.email?.split('@')[0] ||
     'FreshLine Member';
 
@@ -440,6 +523,26 @@ export default function FreshLineHomeScreen() {
             <Text style={styles.profileEmail}>
               {authUser.email || 'No email registered'}
             </Text>
+
+            {isProfileLoading ? (
+              <View style={styles.profileStatusRow}>
+                <ActivityIndicator
+                  size="small"
+                  color={FreshTheme.colors.primary}
+                />
+                <Text style={styles.profileStatusText}>
+                  Loading profile details...
+                </Text>
+              </View>
+            ) : profileLoadError ? (
+              <Text style={styles.profileErrorText}>
+                {profileLoadError}
+              </Text>
+            ) : databaseDisplayName ? (
+              <Text style={styles.profileStatusText}>
+                Profile loaded from database
+              </Text>
+            ) : null}
 
             <View style={styles.profileBadgeRow}>
               <View style={styles.profilePill}>
@@ -855,6 +958,25 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: FreshTheme.colors.textMuted,
     marginTop: 2,
+  },
+  profileStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 8,
+  },
+  profileStatusText: {
+    fontSize: 11,
+    color: FreshTheme.colors.textSecondary,
+    textAlign: 'center',
+    marginTop: 8,
+  },
+  profileErrorText: {
+    fontSize: 11,
+    color: '#B45309',
+    textAlign: 'center',
+    marginTop: 8,
   },
   profileBadgeRow: {
     flexDirection: 'row',
