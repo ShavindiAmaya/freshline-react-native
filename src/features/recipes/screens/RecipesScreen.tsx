@@ -28,14 +28,7 @@ const CATEGORY_FILTERS = ['All', 'Quick', 'Vegetarian', 'Main'] as const;
 type CategoryFilter = (typeof CATEGORY_FILTERS)[number];
 
 /**
- * RecipesScreen ("Cook What I Have")
- *
- * Ranks recipes according to the user's available food inventory:
- * - Prioritizes recipes that rescue food expiring today or soon
- * - Calculates accurate live match percentages
- * - Supports simple search and category filtering
- * - Handles real loading, error, and empty inventory states
- * - Can present recipe details internally or via parent callback
+ * Displays recipes ranked by ingredient availability and food freshness.
  */
 export function RecipesScreen({
   foodItems = [],

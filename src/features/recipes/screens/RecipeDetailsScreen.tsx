@@ -16,16 +16,7 @@ export interface RecipeDetailsScreenProps {
 }
 
 /**
- * RecipeDetailsScreen displays full cooking instructions and ingredients for a selected recipe:
- * - Recipe name, category, and cooking duration
- * - Actual live calculated match percentage
- * - Visual "Ready to Cook" vs "Missing Ingredients" indicator
- * - Urgent ingredients rescued banner
- * - Complete breakdown of available vs. missing ingredients (via IngredientMatchList)
- * - Clear numbered step-by-step cooking instructions
- * - Top back navigation button
- *
- * Runs 100% offline from local recipe data.
+ * Displays recipe details, ingredient availability, and step-by-step cooking instructions.
  */
 export function RecipeDetailsScreen({
   matchResult,
