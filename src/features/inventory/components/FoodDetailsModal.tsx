@@ -1,7 +1,8 @@
 import React from 'react';
 import { View, Text, StyleSheet, Modal, Pressable, Platform } from 'react-native';
 import { FreshTheme } from '@/constants/freshline-theme';
-import { FreshnessStatus } from '@/types/food';
+import { ExpiryStatus } from '@/types/food';
+import { CATEGORY_DEFAULT_ICONS } from '../services/inventoryService';
 import { InventoryFoodItem } from '../types/inventory.types';
 
 interface FoodDetailsModalProps {
@@ -10,6 +11,19 @@ interface FoodDetailsModalProps {
   onClose: () => void;
   onEdit: (item: InventoryFoodItem) => void;
   onDelete: (item: InventoryFoodItem) => void;
+  /** Optional — wired up once Member E ships finishFood(). Buttons are hidden until provided. */
+  onFinish?: (id: string, outcome: 'Consumed' | 'Wasted') => void;
+}
+
+/**
+ * Derives days remaining from an expiry date using calendar-day comparison.
+ */
+function getDaysLeft(expiryDate: string): number {
+  const today = new Date();
+  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const parts = expiryDate.substring(0, 10).split('-').map(Number);
+  const expiryStart = new Date(parts[0], parts[1] - 1, parts[2]).getTime();
+  return Math.round((expiryStart - todayStart) / (1000 * 60 * 60 * 24));
 }
 
 export function FoodDetailsModal({
@@ -18,24 +32,26 @@ export function FoodDetailsModal({
   onClose,
   onEdit,
   onDelete,
+  onFinish,
 }: FoodDetailsModalProps) {
   if (!item) return null;
 
-  const getBadgeStyle = (status: FreshnessStatus) => {
+  const getBadgeStyle = (status: ExpiryStatus) => {
     switch (status) {
-      case 'use_today':
+      case 'Use Today':
+      case 'Expired':
         return {
           container: styles.badgeUseToday,
           text: styles.badgeTextUseToday,
           dot: styles.badgeDotUseToday,
         };
-      case 'use_soon':
+      case 'Use Soon':
         return {
           container: styles.badgeUseSoon,
           text: styles.badgeTextUseSoon,
           dot: styles.badgeDotUseSoon,
         };
-      case 'fresh':
+      case 'Fresh':
       default:
         return {
           container: styles.badgeFresh,
@@ -46,12 +62,16 @@ export function FoodDetailsModal({
   };
 
   const badgeStyle = getBadgeStyle(item.status);
+  const daysLeft = getDaysLeft(item.expiryDate);
+  // Derive icon from category — not stored in DB
+  const icon =
+    CATEGORY_DEFAULT_ICONS[item.category as keyof typeof CATEGORY_DEFAULT_ICONS] ?? '🥗';
 
   const formattedExpiryDate = (() => {
     try {
-      const d = new Date(item.expiry_date);
+      const d = new Date(item.expiryDate);
       return isNaN(d.getTime())
-        ? item.expiry_date
+        ? item.expiryDate
         : d.toLocaleDateString(undefined, {
             weekday: 'short',
             month: 'short',
@@ -59,14 +79,12 @@ export function FoodDetailsModal({
             year: 'numeric',
           });
     } catch {
-      return item.expiry_date;
+      return item.expiryDate;
     }
   })();
 
   const formattedPurchaseDate = (() => {
-    const raw =
-      item.purchase_date ??
-      (item.created_at ? item.created_at.split('T')[0] : null);
+    const raw = item.purchaseDate || item.createdAt?.split('T')[0] || null;
     if (!raw) return 'Not recorded';
     try {
       const d = new Date(raw);
@@ -83,10 +101,18 @@ export function FoodDetailsModal({
   })();
 
   const formatDaysLeft = (days: number) => {
+    if (days < 0) return 'Expired';
     if (days === 0) return 'Expires Today (0 days)';
     if (days === 1) return 'Expires in 1 day';
     return `Expires in ${days} days`;
   };
+
+  const storageLabel =
+    item.storageLocation === 'Fridge'
+      ? '🧊 Fridge'
+      : item.storageLocation === 'Freezer'
+      ? '❄️ Freezer'
+      : '🍞 Pantry';
 
   return (
     <Modal
@@ -113,7 +139,7 @@ export function FoodDetailsModal({
           {/* Hero Food Box */}
           <View style={styles.heroBox}>
             <View style={styles.heroIconCircle}>
-              <Text style={styles.heroIcon}>{item.icon || '🥗'}</Text>
+              <Text style={styles.heroIcon}>{icon}</Text>
             </View>
             <Text style={styles.heroName}>{item.name}</Text>
 
@@ -121,7 +147,7 @@ export function FoodDetailsModal({
             <View style={[styles.statusBadge, badgeStyle.container]}>
               <View style={[styles.statusDot, badgeStyle.dot]} />
               <Text style={[styles.statusBadgeText, badgeStyle.text]}>
-                {item.status_label}
+                {item.status}
               </Text>
             </View>
           </View>
@@ -131,13 +157,7 @@ export function FoodDetailsModal({
             {/* Storage Location */}
             <View style={styles.detailCard}>
               <Text style={styles.detailCardLabel}>STORAGE</Text>
-              <Text style={styles.detailCardValue}>
-                {item.storage_location === 'fridge'
-                  ? '🧊 Fridge'
-                  : item.storage_location === 'freezer'
-                  ? '❄️ Freezer'
-                  : '🍞 Pantry'}
-              </Text>
+              <Text style={styles.detailCardValue}>{storageLabel}</Text>
             </View>
 
             {/* Category */}
@@ -160,7 +180,7 @@ export function FoodDetailsModal({
             <View style={styles.detailCard}>
               <Text style={styles.detailCardLabel}>TIME REMAINING</Text>
               <Text style={styles.detailCardValue}>
-                ⏱️ {formatDaysLeft(item.days_left)}
+                ⏱️ {formatDaysLeft(daysLeft)}
               </Text>
             </View>
           </View>
@@ -180,6 +200,55 @@ export function FoodDetailsModal({
 
           {/* Action Buttons */}
           <View style={styles.actionButtonsCol}>
+            {/*
+             * Finish as Consumed / Finish as Wasted
+             * Always rendered. Disabled until Member E wires up onFinish (finishFood RPC).
+             * No DB write, no delete, no fake success happens here.
+             */}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={
+                onFinish
+                  ? `Mark ${item.name} as consumed`
+                  : 'Finish as Consumed — pending Member E integration'
+              }
+              disabled={!onFinish}
+              onPress={() => { onClose(); onFinish!(item.id, 'Consumed'); }}
+              style={({ pressed }) => [
+                styles.finishConsumedBtn,
+                !onFinish && styles.btnPending,
+                pressed && !!onFinish && styles.buttonPressed,
+              ]}>
+              <Text style={[styles.finishConsumedBtnText, !onFinish && styles.btnPendingText]}>
+                ✅ Finish as Consumed
+              </Text>
+              {!onFinish && (
+                <Text style={styles.btnPendingNote}>⏳ Pending Member E integration</Text>
+              )}
+            </Pressable>
+
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={
+                onFinish
+                  ? `Mark ${item.name} as wasted`
+                  : 'Finish as Wasted — pending Member E integration'
+              }
+              disabled={!onFinish}
+              onPress={() => { onClose(); onFinish!(item.id, 'Wasted'); }}
+              style={({ pressed }) => [
+                styles.finishWastedBtn,
+                !onFinish && styles.btnPending,
+                pressed && !!onFinish && styles.buttonPressed,
+              ]}>
+              <Text style={[styles.finishWastedBtnText, !onFinish && styles.btnPendingText]}>
+                🗑️ Finish as Wasted
+              </Text>
+              {!onFinish && (
+                <Text style={styles.btnPendingNote}>⏳ Pending Member E integration</Text>
+              )}
+            </Pressable>
+
             {/* Edit Button */}
             <Pressable
               accessibilityRole="button"
@@ -394,6 +463,46 @@ const styles = StyleSheet.create({
   },
   actionButtonsCol: {
     gap: 10,
+  },
+  finishConsumedBtn: {
+    backgroundColor: FreshTheme.colors.primary,
+    paddingVertical: 13,
+    borderRadius: FreshTheme.borderRadius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...FreshTheme.shadows.card,
+  },
+  finishConsumedBtnText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  finishWastedBtn: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: FreshTheme.colors.useSoon.badgeBorder,
+    paddingVertical: 13,
+    borderRadius: FreshTheme.borderRadius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  finishWastedBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: FreshTheme.colors.useSoon.text,
+  },
+  /** Applied to Finish buttons when onFinish is not yet provided */
+  btnPending: {
+    opacity: 0.45,
+  },
+  btnPendingText: {
+    color: FreshTheme.colors.textMuted,
+  },
+  btnPendingNote: {
+    fontSize: 10,
+    fontWeight: '500',
+    color: FreshTheme.colors.textMuted,
+    marginTop: 3,
   },
   editBtn: {
     backgroundColor: FreshTheme.colors.primary,

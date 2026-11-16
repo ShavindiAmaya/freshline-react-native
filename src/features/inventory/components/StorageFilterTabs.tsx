@@ -8,9 +8,9 @@ interface StorageFilterTabsProps {
   onSelectFilter: (filter: StorageFilter) => void;
   counts: {
     all: number;
-    fridge: number;
-    pantry: number;
-    freezer: number;
+    Fridge: number;
+    Pantry: number;
+    Freezer: number;
   };
 }
 
@@ -22,9 +22,9 @@ interface FilterTabOption {
 
 const FILTER_OPTIONS: FilterTabOption[] = [
   { key: 'all', label: 'All', icon: '🧺' },
-  { key: 'fridge', label: 'Fridge', icon: '🧊' },
-  { key: 'pantry', label: 'Pantry', icon: '🍞' },
-  { key: 'freezer', label: 'Freezer', icon: '❄️' },
+  { key: 'Fridge', label: 'Fridge', icon: '🧊' },
+  { key: 'Pantry', label: 'Pantry', icon: '🍞' },
+  { key: 'Freezer', label: 'Freezer', icon: '❄️' },
 ];
 
 export function StorageFilterTabs({

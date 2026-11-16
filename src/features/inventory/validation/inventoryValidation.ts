@@ -1,11 +1,11 @@
-import { FoodCategory, StorageLocation } from '@/types/food';
+import { DashboardFoodCategory, StorageLocation } from '@/types/food';
 import {
   CreateFoodItemInput,
   InventoryValidationErrors,
   UpdateFoodItemInput,
 } from '../types/inventory.types';
 
-export const VALID_FOOD_CATEGORIES: FoodCategory[] = [
+export const VALID_FOOD_CATEGORIES: DashboardFoodCategory[] = [
   'dairy',
   'meat',
   'produce',
@@ -17,9 +17,9 @@ export const VALID_FOOD_CATEGORIES: FoodCategory[] = [
 ];
 
 export const VALID_STORAGE_LOCATIONS: StorageLocation[] = [
-  'fridge',
-  'pantry',
-  'freezer',
+  'Fridge',
+  'Pantry',
+  'Freezer',
 ];
 
 /**

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -7,27 +7,52 @@ import {
   Pressable,
   TextInput,
   RefreshControl,
+  ActivityIndicator,
 } from 'react-native';
+import { usePathname } from 'expo-router';
 import { FreshTheme } from '@/constants/freshline-theme';
 import { AddFoodModal } from '../components/AddFoodModal';
 import { DeleteConfirmDialog } from '../components/DeleteConfirmDialog';
 import { EditFoodModal } from '../components/EditFoodModal';
+import { ExpiryFilterChips } from '../components/ExpiryFilterChips';
 import { FoodDetailsModal } from '../components/FoodDetailsModal';
 import { InventoryList } from '../components/InventoryList';
 import { StorageFilterTabs } from '../components/StorageFilterTabs';
 import { inventoryService } from '../services/inventoryService';
 import {
   CreateFoodItemInput,
+  ExpiryFilter,
   InventoryFoodItem,
   StorageFilter,
   UpdateFoodItemInput,
 } from '../types/inventory.types';
 
 export function InventoryScreen() {
+  const pathname = usePathname();
+  /**
+   * Screen-focus reload using usePathname from expo-router.
+   *
+   * NOTE: usePathname is NOT a true navigation focus listener — it fires on
+   * every route change in the app, including navigating *away* from this screen.
+   * We therefore track the inventory's own route (captured once on mount) and
+   * the previous pathname so we reload only when transitioning *back* to this
+   * screen from a different route.  This gives one reload per return, with no
+   * load on departure and no duplicate on the initial mount.
+   *
+   * Limitation: If expo-router or @react-navigation/native ever exposes
+   * useFocusEffect in this SDK version, replace this block with that hook.
+   */
+  const inventoryRouteRef = useRef<string | null>(null); // set once on mount
+  const prevPathnameRef = useRef<string | null>(null);   // tracks last seen pathname
+
   const [items, setItems] = useState<InventoryFoodItem[]>([]);
   const [activeFilter, setActiveFilter] = useState<StorageFilter>('all');
+  const [activeExpiryFilter, setActiveExpiryFilter] = useState<ExpiryFilter>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  // True only during the very first fetch; prevents the empty state from
+  // flashing before data arrives. Subsequent refreshes use isRefreshing.
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Modal states
@@ -58,6 +83,8 @@ export function InventoryScreen() {
       showToast('⚠️ Failed to load inventory');
     } finally {
       setIsLoading(false);
+      // After the first fetch (success or error), stop blocking the list view.
+      setIsInitialLoad(false);
     }
   }, []);
 
@@ -68,26 +95,54 @@ export function InventoryScreen() {
   };
 
   useEffect(() => {
-    loadInventory();
-  }, [loadInventory]);
+    if (inventoryRouteRef.current === null) {
+      // First mount: capture this screen's pathname and load once.
+      inventoryRouteRef.current = pathname;
+      prevPathnameRef.current = pathname;
+      loadInventory();
+      return;
+    }
+    // Only reload when we are transitioning BACK to the inventory route,
+    // i.e. the new pathname is ours and the previous one was different.
+    // This prevents a spurious load when navigating *away* from this screen.
+    if (
+      pathname === inventoryRouteRef.current &&
+      prevPathnameRef.current !== inventoryRouteRef.current
+    ) {
+      loadInventory();
+    }
+    prevPathnameRef.current = pathname;
+  }, [pathname, loadInventory]);
 
   // Compute live counts for each storage location tab
   const counts = {
     all: items.length,
-    fridge: items.filter((i) => i.storage_location === 'fridge').length,
-    pantry: items.filter((i) => i.storage_location === 'pantry').length,
-    freezer: items.filter((i) => i.storage_location === 'freezer').length,
+    Fridge: items.filter((i) => i.storageLocation === 'Fridge').length,
+    Pantry: items.filter((i) => i.storageLocation === 'Pantry').length,
+    Freezer: items.filter((i) => i.storageLocation === 'Freezer').length,
   };
 
-  // Filter items by storage location and search query
+  // Compute live counts for each expiry status chip (across all storage locations)
+  const expiryCounts = {
+    all: items.length,
+    'Use Today': items.filter((i) => i.status === 'Use Today').length,
+    'Use Soon': items.filter((i) => i.status === 'Use Soon').length,
+    Fresh: items.filter((i) => i.status === 'Fresh').length,
+    Expired: items.filter((i) => i.status === 'Expired').length,
+  };
+
+  // Filter items by storage location, expiry status, and search query.
+  // All three filters are AND-ed together.
   const filteredItems = items.filter((item) => {
-    const matchesFilter =
-      activeFilter === 'all' || item.storage_location === activeFilter;
+    const matchesStorage =
+      activeFilter === 'all' || item.storageLocation === activeFilter;
+    const matchesExpiry =
+      activeExpiryFilter === 'all' || item.status === activeExpiryFilter;
     const matchesSearch =
       !searchQuery.trim() ||
       item.name.toLowerCase().includes(searchQuery.trim().toLowerCase()) ||
       item.category.toLowerCase().includes(searchQuery.trim().toLowerCase());
-    return matchesFilter && matchesSearch;
+    return matchesStorage && matchesExpiry && matchesSearch;
   });
 
   // Action: Add Food
@@ -191,23 +246,42 @@ export function InventoryScreen() {
         counts={counts}
       />
 
-      {/* Main List */}
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollListContent}
-        refreshControl={
-          <RefreshControl
-            refreshing={isRefreshing}
-            onRefresh={handleRefresh}
-            colors={[FreshTheme.colors.primary]}
+      {/* Expiry Status Filter Chips */}
+      <ExpiryFilterChips
+        activeFilter={activeExpiryFilter}
+        onSelectFilter={setActiveExpiryFilter}
+        counts={expiryCounts}
+      />
+
+      {/* Main List — show spinner during initial fetch, list afterwards */}
+      {isInitialLoad ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator
+            size="large"
+            color={FreshTheme.colors.primary}
+            accessibilityLabel="Loading inventory"
           />
-        }>
-        <InventoryList
-          items={filteredItems}
-          activeFilter={activeFilter}
-          onPressItem={handlePressItem}
-        />
-      </ScrollView>
+          <Text style={styles.loadingText}>Loading your inventory…</Text>
+        </View>
+      ) : (
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scrollListContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={handleRefresh}
+              colors={[FreshTheme.colors.primary]}
+            />
+          }>
+          <InventoryList
+            items={filteredItems}
+            activeFilter={activeFilter}
+            activeExpiryFilter={activeExpiryFilter}
+            onPressItem={handlePressItem}
+          />
+        </ScrollView>
+      )}
 
       {/* In-app Toast Banner */}
       {toastMessage ? (
@@ -325,6 +399,18 @@ const styles = StyleSheet.create({
   },
   scrollListContent: {
     paddingBottom: 40,
+  },
+  loadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+    gap: 12,
+  },
+  loadingText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: FreshTheme.colors.textSecondary,
   },
   toast: {
     position: 'absolute',

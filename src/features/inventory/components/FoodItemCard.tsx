@@ -1,7 +1,8 @@
 import React from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { FreshTheme } from '@/constants/freshline-theme';
-import { FreshnessStatus } from '@/types/food';
+import { ExpiryStatus } from '@/types/food';
+import { CATEGORY_DEFAULT_ICONS } from '../services/inventoryService';
 import { InventoryFoodItem } from '../types/inventory.types';
 
 interface FoodItemCardProps {
@@ -9,24 +10,43 @@ interface FoodItemCardProps {
   onPress: (item: InventoryFoodItem) => void;
 }
 
+/**
+ * Derives days remaining from an expiry date using calendar-day comparison.
+ * Returns a negative number for expired items.
+ */
+function getDaysLeft(expiryDate: string): number {
+  const today = new Date();
+  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const parts = expiryDate.substring(0, 10).split('-').map(Number);
+  const expiryStart = new Date(parts[0], parts[1] - 1, parts[2]).getTime();
+  return Math.round((expiryStart - todayStart) / (1000 * 60 * 60 * 24));
+}
+
 export function FoodItemCard({ item, onPress }: FoodItemCardProps) {
-  const getBadgeStyle = (status: FreshnessStatus) => {
+  const getBadgeStyle = (status: ExpiryStatus) => {
     switch (status) {
-      case 'use_today':
+      case 'Use Today':
         return {
           container: styles.badgeUseToday,
           text: styles.badgeTextUseToday,
           dot: styles.badgeDotUseToday,
           highlight: styles.cardHighlightUseToday,
         };
-      case 'use_soon':
+      case 'Use Soon':
         return {
           container: styles.badgeUseSoon,
           text: styles.badgeTextUseSoon,
           dot: styles.badgeDotUseSoon,
           highlight: styles.cardHighlightUseSoon,
         };
-      case 'fresh':
+      case 'Expired':
+        return {
+          container: styles.badgeUseToday,
+          text: styles.badgeTextUseToday,
+          dot: styles.badgeDotUseToday,
+          highlight: styles.cardHighlightUseToday,
+        };
+      case 'Fresh':
       default:
         return {
           container: styles.badgeFresh,
@@ -38,17 +58,30 @@ export function FoodItemCard({ item, onPress }: FoodItemCardProps) {
   };
 
   const formatDaysLeft = (days: number) => {
+    if (days < 0) return 'Expired';
     if (days === 0) return 'Expires today';
     if (days === 1) return '1 day left';
     return `${days} days left`;
   };
 
+  const daysLeft = getDaysLeft(item.expiryDate);
   const badgeStyle = getBadgeStyle(item.status);
+  // Derive icon from category — not stored in DB
+  const icon =
+    CATEGORY_DEFAULT_ICONS[item.category as keyof typeof CATEGORY_DEFAULT_ICONS] ?? '🥗';
+
+  // Derive a human-readable storage label
+  const storageLabel =
+    item.storageLocation === 'Fridge'
+      ? '🧊 Fridge'
+      : item.storageLocation === 'Freezer'
+      ? '❄️ Freezer'
+      : '🍞 Pantry';
 
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${item.name}, ${item.quantity} ${item.unit}, ${item.storage_location}, ${formatDaysLeft(item.days_left)}`}
+      accessibilityLabel={`${item.name}, ${item.quantity} ${item.unit}, ${item.storageLocation}, ${formatDaysLeft(daysLeft)}`}
       onPress={() => onPress(item)}
       style={({ pressed }) => [
         styles.card,
@@ -58,7 +91,7 @@ export function FoodItemCard({ item, onPress }: FoodItemCardProps) {
       <View style={styles.contentRow}>
         {/* Food Icon Badge */}
         <View style={styles.iconContainer}>
-          <Text style={styles.iconText}>{item.icon || '🥗'}</Text>
+          <Text style={styles.iconText}>{icon}</Text>
         </View>
 
         {/* Details Column */}
@@ -71,7 +104,7 @@ export function FoodItemCard({ item, onPress }: FoodItemCardProps) {
             <View style={[styles.statusBadge, badgeStyle.container]}>
               <View style={[styles.statusDot, badgeStyle.dot]} />
               <Text style={[styles.statusBadgeText, badgeStyle.text]}>
-                {item.status_label}
+                {item.status}
               </Text>
             </View>
           </View>
@@ -88,19 +121,13 @@ export function FoodItemCard({ item, onPress }: FoodItemCardProps) {
               </Text>
             </View>
             <Text style={styles.metaDivider}>•</Text>
-            <Text style={styles.locationTag}>
-              {item.storage_location === 'fridge'
-                ? '🧊 Fridge'
-                : item.storage_location === 'freezer'
-                ? '❄️ Freezer'
-                : '🍞 Pantry'}
-            </Text>
+            <Text style={styles.locationTag}>{storageLabel}</Text>
           </View>
 
           {/* Expiry timing */}
           <View style={styles.timingRow}>
             <Text style={styles.timingText}>
-              ⏱️ {formatDaysLeft(item.days_left)}
+              ⏱️ {formatDaysLeft(daysLeft)}
             </Text>
           </View>
         </View>

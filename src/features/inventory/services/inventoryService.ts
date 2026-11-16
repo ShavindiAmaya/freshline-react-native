@@ -1,5 +1,5 @@
-import { INITIAL_FOOD_ITEMS } from '@/data/mock-food-data';
-import { FoodCategory, FreshnessStatus } from '@/types/food';
+import { supabase } from '@/lib/supabase';
+import { DashboardFoodCategory, ExpiryStatus, StorageLocation } from '@/types/food';
 import {
   CreateFoodItemInput,
   InventoryFoodItem,
@@ -12,10 +12,15 @@ import {
   validateUpdateFoodItem,
 } from '../validation/inventoryValidation';
 
+// ─────────────────────────────────────────────────────────────
+// UI helpers (still imported by AddFoodModal / EditFoodModal)
+// ─────────────────────────────────────────────────────────────
+
 /**
- * Default icon mapping per FoodCategory
+ * Default emoji icon per food category.
+ * Used by the form UI to preview the item icon — not persisted to the DB.
  */
-export const CATEGORY_DEFAULT_ICONS: Record<FoodCategory, string> = {
+export const CATEGORY_DEFAULT_ICONS: Record<DashboardFoodCategory, string> = {
   dairy: '🥛',
   meat: '🍗',
   produce: '🥦',
@@ -27,7 +32,7 @@ export const CATEGORY_DEFAULT_ICONS: Record<FoodCategory, string> = {
 };
 
 /**
- * Helper to get today's date formatted as YYYY-MM-DD
+ * Returns today's date formatted as YYYY-MM-DD using local time.
  */
 export function getTodayDateString(): string {
   const now = new Date();
@@ -37,80 +42,145 @@ export function getTodayDateString(): string {
   return `${year}-${month}-${day}`;
 }
 
+// ─────────────────────────────────────────────────────────────
+// Internal helpers
+// ─────────────────────────────────────────────────────────────
+
 /**
- * INVENTORY CRUD SERVICE (ISOLATED MOCK SERVICE)
+ * Derives ExpiryStatus from an expiry date string (YYYY-MM-DD or ISO).
+ * Uses calendar-day comparison — no time component:
+ *   - Expired  : expiry date is before today
+ *   - Use Today: expiry date is today
+ *   - Use Soon : expiry date is within the next 2 calendar days
+ *   - Fresh    : expiry date is more than 2 days away
+ */
+function deriveStatus(expiryDate: string): ExpiryStatus {
+  const today = new Date();
+  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+
+  // Parse expiry as a local calendar date to avoid UTC offset shifts
+  const parts = expiryDate.substring(0, 10).split('-').map(Number);
+  const expiryStart = new Date(parts[0], parts[1] - 1, parts[2]).getTime();
+
+  const diffMs = expiryStart - todayStart;
+  const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+
+  if (diffDays < 0) return 'Expired';
+  if (diffDays === 0) return 'Use Today';
+  if (diffDays <= 2) return 'Use Soon';
+  return 'Fresh';
+}
+
+/**
+ * Maps a raw Supabase DB row (snake_case) to the shared FoodItem (camelCase)
+ * with status derived from the expiry date.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapRow(row: any): InventoryFoodItem {
+  return {
+    id: row.id as string,
+    userId: row.user_id as string,
+    name: row.name as string,
+    category: row.category as string,
+    quantity: row.quantity as number,
+    unit: row.unit as string,
+    purchaseDate: row.purchase_date as string,
+    expiryDate: row.expiry_date as string,
+    storageLocation: row.storage_location as StorageLocation,
+    createdAt: row.created_at as string,
+    status: deriveStatus(row.expiry_date as string),
+  };
+}
+
+/**
+ * Returns the authenticated user's UUID, or throws if unauthenticated.
+ * Uses supabase.auth.getUser() — the server-verified path.
+ */
+async function getCurrentUserId(): Promise<string> {
+  const { data, error } = await supabase.auth.getUser();
+  if (error || !data.user) {
+    throw new Error('Not authenticated. Please sign in to access your inventory.');
+  }
+  return data.user.id;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Inventory CRUD Service
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * INVENTORY CRUD SERVICE
  *
- * NOTE: This is an isolated, mock in-memory data store for Member B development.
- * It provides an async Promise-based interface so it can be cleanly replaced or
- * wired to Supabase by the Integration Lead once the client is ready.
+ * Performs real Supabase CRUD operations on the food_items table.
+ * All operations are scoped to the currently authenticated user via RLS
+ * and an explicit .eq('user_id', uid) filter on every query.
  *
- * Freshness calculations follow minimal mock fallbacks to satisfy the shared FoodItem
- * contract without infringing on Member C's domain.
+ * Database columns: id, user_id, name, category, quantity, unit,
+ *                   purchase_date, expiry_date, storage_location, created_at
+ *
+ * Returned items conform to the shared FoodItem interface (camelCase).
+ * ExpiryStatus is derived from expiry_date — it is not stored in the DB.
  */
 class InventoryService {
-  private items: InventoryFoodItem[] = INITIAL_FOOD_ITEMS.map((item) => ({
-    ...item,
-    purchase_date: item.created_at ? item.created_at.split('T')[0] : getTodayDateString(),
-  }));
-
   /**
-   * Helper to derive mock days_left and status to satisfy FoodItem contract.
-   * Full freshness prediction logic is owned by Member C.
-   */
-  private deriveMockStatus(expiryDateIso: string): {
-    days_left: number;
-    status: FreshnessStatus;
-    status_label: 'Use Today' | 'Use Soon' | 'Fresh';
-  } {
-    const target = new Date(expiryDateIso).getTime();
-    const now = Date.now();
-    const diffDays = Math.max(0, Math.ceil((target - now) / (1000 * 60 * 60 * 24)));
-
-    let status: FreshnessStatus = 'fresh';
-    let status_label: 'Use Today' | 'Use Soon' | 'Fresh' = 'Fresh';
-
-    if (diffDays === 0) {
-      status = 'use_today';
-      status_label = 'Use Today';
-    } else if (diffDays <= 2) {
-      status = 'use_soon';
-      status_label = 'Use Soon';
-    }
-
-    return { days_left: diffDays, status, status_label };
-  }
-
-  /**
-   * Fetch all inventory items
+   * Fetch all inventory items for the current user, newest first.
    */
   async getAll(): Promise<InventoryFoodItem[]> {
-    return Promise.resolve([...this.items]);
+    const uid = await getCurrentUserId();
+    const { data, error } = await supabase
+      .from('food_items')
+      .select('*')
+      .eq('user_id', uid)
+      .order('created_at', { ascending: false });
+
+    if (error) throw new Error(`Failed to load inventory: ${error.message}`);
+    return (data ?? []).map(mapRow);
   }
 
   /**
-   * Fetch a single item by id
+   * Fetch a single item by id (must belong to the current user).
    */
   async getById(id: string): Promise<InventoryFoodItem | null> {
-    const item = this.items.find((i) => i.id === id);
-    return Promise.resolve(item ? { ...item } : null);
+    const uid = await getCurrentUserId();
+    const { data, error } = await supabase
+      .from('food_items')
+      .select('*')
+      .eq('id', id)
+      .eq('user_id', uid)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') return null; // No rows found
+      throw new Error(`Failed to fetch item: ${error.message}`);
+    }
+    return data ? mapRow(data) : null;
   }
 
   /**
-   * Fetch items filtered by storage location
+   * Fetch items filtered by storage location.
+   * Passing 'all' returns all items (same as getAll).
    */
   async getByLocation(location: StorageFilter): Promise<InventoryFoodItem[]> {
-    if (location === 'all') {
-      return this.getAll();
-    }
-    const filtered = this.items.filter((item) => item.storage_location === location);
-    return Promise.resolve([...filtered]);
+    if (location === 'all') return this.getAll();
+
+    const uid = await getCurrentUserId();
+    const { data, error } = await supabase
+      .from('food_items')
+      .select('*')
+      .eq('user_id', uid)
+      .eq('storage_location', location)
+      .order('created_at', { ascending: false });
+
+    if (error) throw new Error(`Failed to filter inventory: ${error.message}`);
+    return (data ?? []).map(mapRow);
   }
 
   /**
-   * Create a new food item in inventory
+   * Create a new food item for the current user.
+   * Validates the input payload before inserting.
+   * purchase_date defaults to today when not supplied.
    */
   async create(input: CreateFoodItemInput): Promise<InventoryFoodItem> {
-    // Default purchase_date to today if omitted
     const effectivePurchaseDate = input.purchase_date?.trim() || getTodayDateString();
     const payloadWithDefault: CreateFoodItemInput = {
       ...input,
@@ -122,34 +192,31 @@ class InventoryService {
       throw new Error(`Validation failed: ${JSON.stringify(errors)}`);
     }
 
-    const { days_left, status, status_label } = this.deriveMockStatus(input.expiry_date);
-    const fallbackIcon = CATEGORY_DEFAULT_ICONS[input.category] || '🥗';
+    const uid = await getCurrentUserId();
 
-    const newItem: InventoryFoodItem = {
-      id: `food_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-      name: input.name.trim(),
-      category: input.category,
-      storage_location: input.storage_location,
-      quantity: input.quantity,
-      unit: input.unit.trim(),
-      purchase_date: effectivePurchaseDate,
-      expiry_date: input.expiry_date,
-      days_left,
-      status,
-      status_label,
-      icon: input.icon || fallbackIcon,
-      notes: input.notes?.trim() || undefined,
-      is_used: false,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
+    const { data, error } = await supabase
+      .from('food_items')
+      .insert({
+        user_id: uid,
+        name: input.name.trim(),
+        category: input.category,
+        quantity: input.quantity,
+        unit: input.unit.trim(),
+        purchase_date: effectivePurchaseDate,
+        expiry_date: input.expiry_date,
+        storage_location: input.storage_location,
+      })
+      .select()
+      .single();
 
-    this.items = [newItem, ...this.items];
-    return Promise.resolve({ ...newItem });
+    if (error) throw new Error(`Failed to create item: ${error.message}`);
+    return mapRow(data);
   }
 
   /**
-   * Update an existing food item
+   * Update an existing food item by id.
+   * Validates the partial update payload.
+   * Only columns present in the input are updated.
    */
   async update(id: string, input: UpdateFoodItemInput): Promise<InventoryFoodItem> {
     const errors = validateUpdateFoodItem(input);
@@ -157,58 +224,55 @@ class InventoryService {
       throw new Error(`Validation failed: ${JSON.stringify(errors)}`);
     }
 
-    const index = this.items.findIndex((i) => i.id === id);
-    if (index === -1) {
-      throw new Error(`FoodItem with id "${id}" not found`);
-    }
+    const uid = await getCurrentUserId();
 
-    const existing = this.items[index];
-    const updatedExpiry = input.expiry_date ?? existing.expiry_date;
-    const { days_left, status, status_label } = this.deriveMockStatus(updatedExpiry);
+    // Build only the columns being updated
+    const patch: Record<string, unknown> = {};
+    if (input.name !== undefined) patch.name = input.name.trim();
+    if (input.category !== undefined) patch.category = input.category;
+    if (input.quantity !== undefined) patch.quantity = input.quantity;
+    if (input.unit !== undefined) patch.unit = input.unit.trim();
+    if (input.purchase_date !== undefined) patch.purchase_date = input.purchase_date.trim();
+    if (input.expiry_date !== undefined) patch.expiry_date = input.expiry_date;
+    if (input.storage_location !== undefined) patch.storage_location = input.storage_location;
 
-    const updatedItem: InventoryFoodItem = {
-      ...existing,
-      name: input.name !== undefined ? input.name.trim() : existing.name,
-      category: input.category ?? existing.category,
-      storage_location: input.storage_location ?? existing.storage_location,
-      quantity: input.quantity ?? existing.quantity,
-      unit: input.unit !== undefined ? input.unit.trim() : existing.unit,
-      purchase_date:
-        input.purchase_date !== undefined
-          ? input.purchase_date.trim()
-          : existing.purchase_date,
-      expiry_date: updatedExpiry,
-      days_left,
-      status,
-      status_label,
-      icon: input.icon ?? existing.icon,
-      notes: input.notes !== undefined ? input.notes.trim() : existing.notes,
-      updated_at: new Date().toISOString(),
-    };
+    const { data, error } = await supabase
+      .from('food_items')
+      .update(patch)
+      .eq('id', id)
+      .eq('user_id', uid)
+      .select()
+      .single();
 
-    this.items[index] = updatedItem;
-    return Promise.resolve({ ...updatedItem });
+    if (error) throw new Error(`Failed to update item: ${error.message}`);
+    return mapRow(data);
   }
 
   /**
-   * Delete an item from inventory
+   * Delete a food item by id.
+   * Returns true if a row was deleted, false if the item was not found.
+   *
+   * NOTE: Member E's finish-food / waste-record integration is not yet
+   * implemented — no shared RPC or service function exists in the codebase.
+   * When Member E ships their service, a waste record should be created here
+   * before deleting. For now, deletion proceeds without a waste record.
    */
   async delete(id: string): Promise<boolean> {
-    const initialLength = this.items.length;
-    this.items = this.items.filter((i) => i.id !== id);
-    return Promise.resolve(this.items.length < initialLength);
-  }
+    const uid = await getCurrentUserId();
+    const { error, count } = await supabase
+      .from('food_items')
+      .delete({ count: 'exact' })
+      .eq('id', id)
+      .eq('user_id', uid);
 
-  /**
-   * Reset store to initial mock data (helpful for dev/testing)
-   */
-  async resetToMockData(): Promise<void> {
-    this.items = INITIAL_FOOD_ITEMS.map((item) => ({
-      ...item,
-      purchase_date: item.created_at ? item.created_at.split('T')[0] : getTodayDateString(),
-    }));
-    return Promise.resolve();
+    if (error) throw new Error(`Failed to delete item: ${error.message}`);
+    return (count ?? 0) > 0;
   }
 }
 
 export const inventoryService = new InventoryService();
+
+// ─────────────────────────────────────────────────────────────
+// Re-export deriveStatus so UI components can use it
+// ─────────────────────────────────────────────────────────────
+export { deriveStatus };

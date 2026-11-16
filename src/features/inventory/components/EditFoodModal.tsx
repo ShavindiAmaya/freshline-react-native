@@ -11,7 +11,7 @@ import {
   Platform,
 } from 'react-native';
 import { FreshTheme } from '@/constants/freshline-theme';
-import { FoodCategory, StorageLocation } from '@/types/food';
+import { DashboardFoodCategory, StorageLocation } from '@/types/food';
 import { CATEGORY_DEFAULT_ICONS, getTodayDateString } from '../services/inventoryService';
 import {
   InventoryFoodItem,
@@ -51,8 +51,8 @@ export function EditFoodModal({
   onUpdate,
 }: EditFoodModalProps) {
   const [name, setName] = useState('');
-  const [category, setCategory] = useState<FoodCategory>('produce');
-  const [location, setLocation] = useState<StorageLocation>('fridge');
+  const [category, setCategory] = useState<DashboardFoodCategory>('produce');
+  const [location, setLocation] = useState<StorageLocation>('Fridge');
   const [quantity, setQuantity] = useState('1');
   const [unit, setUnit] = useState('pcs');
   const [purchaseDate, setPurchaseDate] = useState(getTodayDateString());
@@ -65,16 +65,23 @@ export function EditFoodModal({
   useEffect(() => {
     if (item) {
       setName(item.name);
-      setCategory(item.category);
-      setLocation(item.storage_location);
+      setCategory(item.category as DashboardFoodCategory);
+      setLocation(item.storageLocation);
       setQuantity(item.quantity.toString());
       setUnit(item.unit);
       const initialPurchaseDate =
-        item.purchase_date ??
-        (item.created_at ? item.created_at.split('T')[0] : getTodayDateString());
+        item.purchaseDate ??
+        (item.createdAt ? item.createdAt.split('T')[0] : getTodayDateString());
       setPurchaseDate(initialPurchaseDate);
-      setExpiryDays(item.days_left);
-      setIcon(item.icon);
+      // Derive current days left from expiryDate for the preset picker
+      const today = new Date();
+      const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+      const parts = item.expiryDate.substring(0, 10).split('-').map(Number);
+      const expiryStart = new Date(parts[0], parts[1] - 1, parts[2]).getTime();
+      const daysLeft = Math.max(0, Math.round((expiryStart - todayStart) / (1000 * 60 * 60 * 24)));
+      setExpiryDays(daysLeft);
+      // Derive icon from category
+      setIcon(CATEGORY_DEFAULT_ICONS[item.category as DashboardFoodCategory] || '🥗');
       setErrors({});
       setIsSubmitting(false);
     }
@@ -82,7 +89,7 @@ export function EditFoodModal({
 
   if (!item) return null;
 
-  const handleSelectCategory = (cat: FoodCategory) => {
+  const handleSelectCategory = (cat: DashboardFoodCategory) => {
     setCategory(cat);
     // update icon if user hasn't customized it
     if (icon === CATEGORY_DEFAULT_ICONS[category]) {
@@ -111,7 +118,6 @@ export function EditFoodModal({
       unit,
       purchase_date: purchaseDate,
       expiry_date: expiryDateIso,
-      icon,
     };
 
     const validationErrors = validateUpdateFoodItem(updatePayload);
@@ -230,7 +236,7 @@ export function EditFoodModal({
               <View style={styles.gridRow}>
                 {VALID_STORAGE_LOCATIONS.map((loc) => {
                   const isSelected = location === loc;
-                  const locIcon = loc === 'fridge' ? '🧊' : loc === 'freezer' ? '❄️' : '🍞';
+                  const locIcon = loc === 'Fridge' ? '🧊' : loc === 'Freezer' ? '❄️' : '🍞';
                   return (
                     <Pressable
                       key={loc}
@@ -347,8 +353,8 @@ export function EditFoodModal({
                   <Pressable
                     onPress={() => {
                       const orig =
-                        item.purchase_date ??
-                        (item.created_at ? item.created_at.split('T')[0] : getTodayDateString());
+                        item.purchaseDate ??
+                        (item.createdAt ? item.createdAt.split('T')[0] : getTodayDateString());
                       setPurchaseDate(orig);
                     }}
                     style={styles.datePresetChip}>

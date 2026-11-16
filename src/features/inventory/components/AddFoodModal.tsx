@@ -11,7 +11,7 @@ import {
   Platform,
 } from 'react-native';
 import { FreshTheme } from '@/constants/freshline-theme';
-import { FoodCategory, StorageLocation } from '@/types/food';
+import { DashboardFoodCategory, StorageLocation } from '@/types/food';
 import { CATEGORY_DEFAULT_ICONS, getTodayDateString } from '../services/inventoryService';
 import {
   CreateFoodItemInput,
@@ -44,8 +44,8 @@ const PRESET_EXPIRY_DAYS = [
 
 export function AddFoodModal({ visible, onClose, onSave }: AddFoodModalProps) {
   const [name, setName] = useState('');
-  const [category, setCategory] = useState<FoodCategory>('produce');
-  const [location, setLocation] = useState<StorageLocation>('fridge');
+  const [category, setCategory] = useState<DashboardFoodCategory>('produce');
+  const [location, setLocation] = useState<StorageLocation>('Fridge');
   const [quantity, setQuantity] = useState('1');
   const [unit, setUnit] = useState('pcs');
   const [purchaseDate, setPurchaseDate] = useState(getTodayDateString());
@@ -54,7 +54,7 @@ export function AddFoodModal({ visible, onClose, onSave }: AddFoodModalProps) {
   const [errors, setErrors] = useState<InventoryValidationErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSelectCategory = (cat: FoodCategory) => {
+  const handleSelectCategory = (cat: DashboardFoodCategory) => {
     setCategory(cat);
     setIcon(CATEGORY_DEFAULT_ICONS[cat] || '🥗');
   };
@@ -71,7 +71,7 @@ export function AddFoodModal({ visible, onClose, onSave }: AddFoodModalProps) {
   const handleResetForm = () => {
     setName('');
     setCategory('produce');
-    setLocation('fridge');
+    setLocation('Fridge');
     setQuantity('1');
     setUnit('pcs');
     setPurchaseDate(getTodayDateString());
@@ -98,7 +98,6 @@ export function AddFoodModal({ visible, onClose, onSave }: AddFoodModalProps) {
       unit,
       purchase_date: purchaseDate,
       expiry_date: expiryDateIso,
-      icon,
     };
 
     const validationErrors = validateCreateFoodItem(inputPayload);
@@ -220,7 +219,7 @@ export function AddFoodModal({ visible, onClose, onSave }: AddFoodModalProps) {
               <View style={styles.gridRow}>
                 {VALID_STORAGE_LOCATIONS.map((loc) => {
                   const isSelected = location === loc;
-                  const locIcon = loc === 'fridge' ? '🧊' : loc === 'freezer' ? '❄️' : '🍞';
+                  const locIcon = loc === 'Fridge' ? '🧊' : loc === 'Freezer' ? '❄️' : '🍞';
                   return (
                     <Pressable
                       key={loc}

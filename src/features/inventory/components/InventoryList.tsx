@@ -1,25 +1,37 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { FreshTheme } from '@/constants/freshline-theme';
-import { InventoryFoodItem, StorageFilter } from '../types/inventory.types';
+import { ExpiryFilter, InventoryFoodItem, StorageFilter } from '../types/inventory.types';
 import { FoodItemCard } from './FoodItemCard';
 
 interface InventoryListProps {
   items: InventoryFoodItem[];
   activeFilter: StorageFilter;
+  activeExpiryFilter: ExpiryFilter;
   onPressItem: (item: InventoryFoodItem) => void;
 }
 
 export function InventoryList({
   items,
   activeFilter,
+  activeExpiryFilter,
   onPressItem,
 }: InventoryListProps) {
   if (items.length === 0) {
-    const filterLabel =
-      activeFilter === 'all'
-        ? 'kitchen inventory'
-        : `${activeFilter} storage`;
+    // Build a human-readable description of the active filter combination
+    const storageLabel =
+      activeFilter === 'all' ? null : `${activeFilter} storage`;
+    const expiryLabel =
+      activeExpiryFilter === 'all' ? null : `"${activeExpiryFilter}"`;
+
+    let filterDescription = 'your kitchen inventory';
+    if (storageLabel && expiryLabel) {
+      filterDescription = `${storageLabel} with status ${expiryLabel}`;
+    } else if (storageLabel) {
+      filterDescription = storageLabel;
+    } else if (expiryLabel) {
+      filterDescription = `items with status ${expiryLabel}`;
+    }
 
     return (
       <View style={styles.emptyContainer}>
@@ -28,8 +40,9 @@ export function InventoryList({
         </View>
         <Text style={styles.emptyTitle}>No food items found</Text>
         <Text style={styles.emptySubtitle}>
-          Your {filterLabel} has no tracked food items yet. Tap "+ Add Food" to
-          start tracking freshness!
+          {activeExpiryFilter === 'all' && activeFilter === 'all'
+            ? 'Your kitchen inventory has no tracked food items yet. Tap "+ Add Food" to start tracking freshness!'
+            : `No items match ${filterDescription}. Try a different filter or add new food.`}
         </Text>
       </View>
     );
