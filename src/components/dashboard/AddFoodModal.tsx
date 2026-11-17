@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -11,7 +12,12 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { FoodItem, StorageLocation } from '@/types/food';
+import {
+  scanFoodItemWithAI,
+  ScannedImageInput,
+} from '@/features/scanner/services/scanner.service';
 
 interface AddFoodModalProps {
   visible: boolean;
@@ -45,6 +51,32 @@ const DEFAULT_CATEGORIES = [
 
 const UNITS = ['Pieces', 'kg', 'g', 'L', 'ml', 'Pack'];
 const DEFAULT_LOCATIONS: StorageLocation[] = ['Fridge', 'Pantry', 'Freezer'];
+
+interface PhotoSlot {
+  uri: string;
+  base64: string;
+  mimeType: string;
+}
+
+// Simple helper to match string options case-insensitively
+function matchOption(options: string[], target: string | null | undefined): string | null {
+  if (!target) return null;
+  const cleanTarget = target.trim().toLowerCase();
+
+  // 1. Exact match (case-insensitive)
+  const exact = options.find((opt) => opt.trim().toLowerCase() === cleanTarget);
+  if (exact) return exact;
+
+  // 2. Partial match
+  const partial = options.find(
+    (opt) =>
+      cleanTarget.includes(opt.trim().toLowerCase()) ||
+      opt.trim().toLowerCase().includes(cleanTarget)
+  );
+  if (partial) return partial;
+
+  return null;
+}
 
 // Helper to format date as YYYY-MM-DD
 function formatDateToISO(date: Date): string {
@@ -82,10 +114,23 @@ export function AddFoodModal({
   );
   const [validationError, setValidationError] = useState('');
 
+  // AI Food Scanner states
+  const [showScanner, setShowScanner] = useState(false);
+  const [photos, setPhotos] = useState<(PhotoSlot | null)[]>([null, null, null]);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [scanSuccess, setScanSuccess] = useState<string | null>(null);
+
   // Pre-fill fields when opening in edit mode or set clean defaults for add
   useEffect(() => {
     if (visible) {
       setValidationError('');
+      setShowScanner(false);
+      setPhotos([null, null, null]);
+      setScanError(null);
+      setScanSuccess(null);
+      setIsAnalyzing(false);
+
       if (itemToEdit) {
         setName(itemToEdit.name);
         setCategory(itemToEdit.category || availableCategories[0] || 'Produce');
@@ -117,6 +162,163 @@ export function AddFoodModal({
       }
     }
   }, [visible, itemToEdit, availableCategories, availableLocations]);
+
+  // Capture photo using Camera
+  const handleCapturePhoto = async (index: number) => {
+    setScanError(null);
+    try {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!perm.granted) {
+        setScanError('Camera permission is required to capture photos.');
+        return;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ['images'],
+        quality: 0.6,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        const base64Data = asset.base64;
+        if (base64Data) {
+          setPhotos((prev) => {
+            const next = [...prev];
+            next[index] = {
+              uri: asset.uri,
+              base64: base64Data,
+              mimeType: asset.mimeType || 'image/jpeg',
+            };
+            return next;
+          });
+        }
+      }
+    } catch (err: any) {
+      setScanError('Could not capture photo: ' + (err?.message || 'Unknown error'));
+    }
+  };
+
+  // Select photo from Gallery / Media Library
+  const handlePickFromGallery = async (index: number) => {
+    setScanError(null);
+    try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) {
+        setScanError('Photo library permission is required to select photos.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        quality: 0.6,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        const base64Data = asset.base64;
+        if (base64Data) {
+          setPhotos((prev) => {
+            const next = [...prev];
+            next[index] = {
+              uri: asset.uri,
+              base64: base64Data,
+              mimeType: asset.mimeType || 'image/jpeg',
+            };
+            return next;
+          });
+        }
+      }
+    } catch (err: any) {
+      setScanError('Could not select photo: ' + (err?.message || 'Unknown error'));
+    }
+  };
+
+  // Remove photo from a slot
+  const handleRemovePhoto = (index: number) => {
+    setPhotos((prev) => {
+      const next = [...prev];
+      next[index] = null;
+      return next;
+    });
+  };
+
+  // Send images to Gemini Vision via Supabase Edge Function
+  const handleAnalyzeProduct = async () => {
+    setScanError(null);
+    setScanSuccess(null);
+
+    // Front photo (slot 0) is required
+    if (!photos[0]) {
+      setScanError('Please capture or select the product front photo first.');
+      return;
+    }
+
+    const validPhotos: ScannedImageInput[] = photos
+      .filter((p): p is PhotoSlot => p !== null && Boolean(p.base64))
+      .map((p) => ({
+        base64: p.base64,
+        mimeType: p.mimeType,
+      }));
+
+    setIsAnalyzing(true);
+    try {
+      const result = await scanFoodItemWithAI(validPhotos);
+
+      // 1. Populate Product Name
+      if (result.name) {
+        setName(result.name);
+      }
+
+      // 2. Match Category against user inventory options
+      const matchedCat = matchOption(availableCategories, result.category);
+      if (matchedCat) {
+        setCategory(matchedCat);
+      }
+
+      // 3. Populate Quantity
+      if (result.quantity && result.quantity > 0) {
+        setQuantity(String(result.quantity));
+      }
+
+      // 4. Match Unit against UNITS list
+      const matchedUnit = matchOption(UNITS, result.unit);
+      if (matchedUnit) {
+        setUnit(matchedUnit);
+      }
+
+      // 5. Purchase Date (default to today)
+      setPurchaseDate(formatDateToISO(new Date()));
+
+      // 6. Expiry Date
+      let hasExpiry = false;
+      if (result.expiryDate) {
+        setExpiryDate(result.expiryDate);
+        hasExpiry = true;
+      }
+
+      // 7. Match Storage Location against user inventory options
+      const matchedLoc = matchOption(availableLocations, result.storageLocation);
+      if (matchedLoc) {
+        setStorageLocation(matchedLoc as StorageLocation);
+      }
+
+      if (hasExpiry) {
+        setScanSuccess('Product recognized! Please verify details below and save.');
+      } else {
+        setScanSuccess(
+          'Product recognized! (Expiry date could not be confirmed — please enter it manually below).'
+        );
+      }
+    } catch (err: any) {
+      setScanError(
+        err?.message || 'Failed to analyze product. Please try again or enter details manually.'
+      );
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
 
   const handleSubmit = () => {
     setValidationError('');
@@ -184,6 +386,129 @@ export function AddFoodModal({
           </View>
 
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.formScroll}>
+            {/* AI Food Scanner Section */}
+            {!itemToEdit && (
+              <View style={styles.aiToggleWrapper}>
+                <Pressable
+                  onPress={() => setShowScanner((prev) => !prev)}
+                  style={[
+                    styles.aiToggleBtn,
+                    showScanner && styles.aiToggleBtnActive,
+                  ]}>
+                  <Text
+                    style={[
+                      styles.aiToggleBtnText,
+                      showScanner && styles.aiToggleBtnTextActive,
+                    ]}>
+                    {showScanner ? '✕ Close AI Scanner' : '✨ Scan with AI (Auto-Fill)'}
+                  </Text>
+                </Pressable>
+              </View>
+            )}
+
+            {showScanner && !itemToEdit && (
+              <View style={styles.scannerCard}>
+                <View style={styles.scannerHeaderRow}>
+                  <Text style={styles.scannerTitle}>AI Food Scanner</Text>
+                  <Text style={styles.scannerSubtitle}>
+                    Capture up to 3 photos to auto-fill product details
+                  </Text>
+                </View>
+
+                {/* 3 Photo Slots */}
+                <View style={styles.slotsRow}>
+                  {[
+                    { label: 'Front Image *', sub: 'Required' },
+                    { label: 'Expiry Label', sub: 'Recommended' },
+                    { label: 'Back / Details', sub: 'Optional' },
+                  ].map((meta, idx) => {
+                    const photo = photos[idx];
+                    return (
+                      <View key={idx} style={styles.slotItem}>
+                        <Text style={styles.slotLabel} numberOfLines={1}>
+                          {meta.label}
+                        </Text>
+                        <Text style={styles.slotSubLabel}>{meta.sub}</Text>
+
+                        {photo ? (
+                          <View style={styles.slotPreviewBox}>
+                            <Image
+                              source={{ uri: photo.uri }}
+                              style={styles.slotPreviewImage}
+                            />
+                            <View style={styles.slotActionRow}>
+                              <Pressable
+                                onPress={() => handleCapturePhoto(idx)}
+                                hitSlop={4}
+                                style={styles.slotSmallBtn}>
+                                <Text style={styles.slotSmallBtnText}>📷</Text>
+                              </Pressable>
+                              <Pressable
+                                onPress={() => handlePickFromGallery(idx)}
+                                hitSlop={4}
+                                style={styles.slotSmallBtn}>
+                                <Text style={styles.slotSmallBtnText}>🖼️</Text>
+                              </Pressable>
+                              <Pressable
+                                onPress={() => handleRemovePhoto(idx)}
+                                hitSlop={4}
+                                style={[styles.slotSmallBtn, styles.slotRemoveBtn]}>
+                                <Text style={styles.slotRemoveBtnText}>✕</Text>
+                              </Pressable>
+                            </View>
+                          </View>
+                        ) : (
+                          <View style={styles.slotEmptyBox}>
+                            <Pressable
+                              onPress={() => handleCapturePhoto(idx)}
+                              style={styles.slotPickBtn}>
+                              <Text style={styles.slotPickBtnText}>📷 Camera</Text>
+                            </Pressable>
+                            <Pressable
+                              onPress={() => handlePickFromGallery(idx)}
+                              style={[styles.slotPickBtn, styles.slotPickGalleryBtn]}>
+                              <Text style={styles.slotPickGalleryBtnText}>🖼️ Gallery</Text>
+                            </Pressable>
+                          </View>
+                        )}
+                      </View>
+                    );
+                  })}
+                </View>
+
+                {/* Feedback notices */}
+                {scanError ? (
+                  <View style={styles.scanNoticeBoxError}>
+                    <Text style={styles.scanNoticeTextError}>⚠️ {scanError}</Text>
+                  </View>
+                ) : null}
+
+                {scanSuccess ? (
+                  <View style={styles.scanNoticeBoxSuccess}>
+                    <Text style={styles.scanNoticeTextSuccess}>{scanSuccess}</Text>
+                  </View>
+                ) : null}
+
+                {/* Analyze Button */}
+                <Pressable
+                  onPress={handleAnalyzeProduct}
+                  disabled={isAnalyzing || !photos[0]}
+                  style={[
+                    styles.analyzeBtn,
+                    (!photos[0] || isAnalyzing) && styles.analyzeBtnDisabled,
+                  ]}>
+                  {isAnalyzing ? (
+                    <View style={styles.analyzeBtnLoadingRow}>
+                      <ActivityIndicator size="small" color="#FFFFFF" style={{ marginRight: 8 }} />
+                      <Text style={styles.analyzeBtnText}>Analyzing with Gemini AI...</Text>
+                    </View>
+                  ) : (
+                    <Text style={styles.analyzeBtnText}>🔍 Analyze Product</Text>
+                  )}
+                </Pressable>
+              </View>
+            )}
+
             {/* Product Name */}
             <Text style={styles.inputLabel}>Product Name *</Text>
             <TextInput
@@ -482,5 +807,180 @@ const styles = StyleSheet.create({
     color: '#64748B',
     fontSize: 13,
     fontWeight: '600',
+  },
+  aiToggleWrapper: {
+    marginBottom: 10,
+  },
+  aiToggleBtn: {
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  aiToggleBtnActive: {
+    backgroundColor: '#F1F5F9',
+    borderColor: '#CBD5E1',
+  },
+  aiToggleBtnText: {
+    color: '#059669',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  aiToggleBtnTextActive: {
+    color: '#64748B',
+  },
+  scannerCard: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    padding: 12,
+    marginBottom: 12,
+  },
+  scannerHeaderRow: {
+    marginBottom: 10,
+  },
+  scannerTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  scannerSubtitle: {
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  slotsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 10,
+  },
+  slotItem: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 6,
+    alignItems: 'center',
+  },
+  slotLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#1E293B',
+    textAlign: 'center',
+  },
+  slotSubLabel: {
+    fontSize: 9,
+    color: '#94A3B8',
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  slotPreviewBox: {
+    width: '100%',
+    height: 74,
+    borderRadius: 6,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  slotPreviewImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 6,
+    resizeMode: 'cover',
+  },
+  slotActionRow: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(15, 23, 42, 0.75)',
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingVertical: 3,
+  },
+  slotSmallBtn: {
+    paddingHorizontal: 4,
+  },
+  slotSmallBtnText: {
+    fontSize: 11,
+  },
+  slotRemoveBtn: {},
+  slotRemoveBtnText: {
+    fontSize: 11,
+    color: '#EF4444',
+    fontWeight: 'bold',
+  },
+  slotEmptyBox: {
+    width: '100%',
+    height: 74,
+    justifyContent: 'center',
+    gap: 4,
+  },
+  slotPickBtn: {
+    backgroundColor: '#DCFCE7',
+    paddingVertical: 4,
+    paddingHorizontal: 2,
+    borderRadius: 4,
+    alignItems: 'center',
+  },
+  slotPickBtnText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#15803D',
+  },
+  slotPickGalleryBtn: {
+    backgroundColor: '#F1F5F9',
+  },
+  slotPickGalleryBtnText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  scanNoticeBoxError: {
+    backgroundColor: '#FEE2E2',
+    borderRadius: 6,
+    padding: 8,
+    marginBottom: 8,
+  },
+  scanNoticeTextError: {
+    fontSize: 11,
+    color: '#B91C1C',
+    fontWeight: '600',
+  },
+  scanNoticeBoxSuccess: {
+    backgroundColor: '#DCFCE7',
+    borderRadius: 6,
+    padding: 8,
+    marginBottom: 8,
+  },
+  scanNoticeTextSuccess: {
+    fontSize: 11,
+    color: '#15803D',
+    fontWeight: '600',
+  },
+  analyzeBtn: {
+    backgroundColor: '#16A34A',
+    height: 38,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  analyzeBtnDisabled: {
+    backgroundColor: '#94A3B8',
+    opacity: 0.8,
+  },
+  analyzeBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  analyzeBtnLoadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
 });
