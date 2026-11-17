@@ -1,7 +1,8 @@
-import React from 'react';
+// Dashboard bottom navigation
+import React, { type ComponentProps } from 'react';
 import { View, Text, StyleSheet, Pressable, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { FreshTheme } from '@/constants/freshline-theme';
+import { SymbolView } from 'expo-symbols';
 import { DashboardTab } from '@/types/food';
 
 interface BottomNavProps {
@@ -13,16 +14,16 @@ interface BottomNavProps {
 interface NavItem {
   key: DashboardTab;
   label: string;
-  icon: string;
-  badge?: number;
+  icon: ComponentProps<typeof SymbolView>['name'];
 }
 
+// Navigation items with clean vector symbols
 const NAV_ITEMS: NavItem[] = [
-  { key: 'home', label: 'Home', icon: '🏠' },
-  { key: 'inventory', label: 'Inventory', icon: '📦' },
-  { key: 'recipes', label: 'Recipes', icon: '🍳' },
-  { key: 'insights', label: 'Insights', icon: '📊' },
-  { key: 'profile', label: 'Profile', icon: '👤' },
+  { key: 'home', label: 'Home', icon: { ios: 'house', android: 'home', web: 'home' } },
+  { key: 'inventory', label: 'Inventory', icon: { ios: 'archivebox', android: 'inventory_2', web: 'inventory_2' } },
+  { key: 'recipes', label: 'Recipes', icon: { ios: 'fork.knife', android: 'restaurant_menu', web: 'restaurant_menu' } },
+  { key: 'insights', label: 'Insights', icon: { ios: 'chart.bar', android: 'bar_chart', web: 'bar_chart' } },
+  { key: 'profile', label: 'Profile', icon: { ios: 'person', android: 'person', web: 'person' } },
 ];
 
 export function BottomNav({
@@ -31,8 +32,6 @@ export function BottomNav({
   unreadCount = 0,
 }: BottomNavProps) {
   const insets = useSafeAreaInsets();
-
-  // Ensure adequate bottom padding on both Android and iOS
   const bottomInset = Math.max(insets.bottom, Platform.OS === 'android' ? 12 : 8);
 
   return (
@@ -53,12 +52,17 @@ export function BottomNav({
                 styles.tabButton,
                 pressed && styles.tabButtonPressed,
               ]}>
+              {/* Icon with active highlight */}
               <View
                 style={[
                   styles.iconContainer,
                   isActive && styles.iconContainerActive,
                 ]}>
-                <Text style={styles.tabIcon}>{item.icon}</Text>
+                <SymbolView
+                  name={item.icon}
+                  size={20}
+                  tintColor={isActive ? '#15803D' : '#64748B'}
+                />
                 {showBadge && (
                   <View style={styles.tabBadge}>
                     <Text style={styles.tabBadgeText}>
@@ -68,6 +72,7 @@ export function BottomNav({
                 )}
               </View>
 
+              {/* Tab label */}
               <Text
                 style={[
                   styles.tabLabel,
@@ -76,7 +81,7 @@ export function BottomNav({
                 {item.label}
               </Text>
 
-              {/* Active Indicator Dot */}
+              {/* Active dot indicator */}
               {isActive && <View style={styles.activeDot} />}
             </Pressable>
           );
@@ -91,7 +96,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
     borderTopColor: '#E2E8F0',
-    ...FreshTheme.shadows.floating,
   },
   container: {
     flexDirection: 'row',
@@ -115,53 +119,51 @@ const styles = StyleSheet.create({
     transform: [{ scale: 0.95 }],
   },
   iconContainer: {
-    width: 38,
-    height: 32,
-    borderRadius: FreshTheme.borderRadius.full,
+    width: 44,
+    height: 30,
+    borderRadius: 15,
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
     marginBottom: 2,
   },
   iconContainerActive: {
-    backgroundColor: FreshTheme.colors.primaryLight,
-  },
-  tabIcon: {
-    fontSize: 18,
+    backgroundColor: '#DCFCE7',
   },
   tabBadge: {
     position: 'absolute',
     top: -2,
-    right: 2,
-    minWidth: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: FreshTheme.colors.useToday.text,
+    right: 4,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#DC2626',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 3,
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
   },
   tabBadgeText: {
     color: '#FFFFFF',
     fontSize: 9,
-    fontWeight: '800',
+    fontWeight: '700',
   },
   tabLabel: {
     fontSize: 11,
-    fontWeight: '600',
-    color: FreshTheme.colors.textMuted,
-    marginTop: 1,
+    fontWeight: '500',
+    color: '#64748B',
+    marginTop: 2,
   },
   tabLabelActive: {
-    color: FreshTheme.colors.primaryDark,
-    fontWeight: '800',
+    color: '#15803D',
+    fontWeight: '700',
   },
   activeDot: {
     width: 4,
     height: 4,
     borderRadius: 2,
-    backgroundColor: FreshTheme.colors.primary,
+    backgroundColor: '#15803D',
     marginTop: 3,
   },
 });
-

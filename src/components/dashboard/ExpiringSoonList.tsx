@@ -1,7 +1,6 @@
 import React from 'react';
-import { View, Text, StyleSheet, Pressable } from 'react-native';
-import { FreshTheme } from '@/constants/freshline-theme';
-import { FoodItem, FreshnessStatus } from '@/types/food';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { FoodItem, calculateExpiryStatus, getDaysRemaining } from '@/types/food';
 
 interface ExpiringSoonListProps {
   items: FoodItem[];
@@ -16,177 +15,139 @@ export function ExpiringSoonList({
   onPressItem,
   onPressViewAll,
 }: ExpiringSoonListProps) {
-  const getBadgeStyle = (status: FreshnessStatus) => {
+  const getBadgeStyle = (status: string) => {
     switch (status) {
-      case 'use_today':
+      case 'Expired':
+        return {
+          container: styles.badgeExpired,
+          text: styles.badgeTextExpired,
+        };
+      case 'Use Today':
         return {
           container: styles.badgeUseToday,
           text: styles.badgeTextUseToday,
-          dot: styles.badgeDotUseToday,
-          bar: styles.progressBarUseToday,
-          cardHighlight: styles.cardHighlightUseToday,
         };
-      case 'use_soon':
+      case 'Use Soon':
         return {
           container: styles.badgeUseSoon,
           text: styles.badgeTextUseSoon,
-          dot: styles.badgeDotUseSoon,
-          bar: styles.progressBarUseSoon,
-          cardHighlight: styles.cardHighlightUseSoon,
         };
-      case 'fresh':
+      case 'Fresh':
       default:
         return {
           container: styles.badgeFresh,
           text: styles.badgeTextFresh,
-          dot: styles.badgeDotFresh,
-          bar: styles.progressBarFresh,
-          cardHighlight: styles.cardHighlightFresh,
         };
     }
   };
 
-  const getProgressWidth = (days: number) => {
-    if (days === 0) return '100%';
-    if (days === 1) return '80%';
-    if (days === 2) return '60%';
-    if (days <= 5) return '40%';
-    return '15%';
-  };
-
-  const formatDaysLeft = (days: number) => {
-    if (days === 0) return '0 days (Today)';
+  const formatDaysText = (days: number) => {
+    if (days < 0) return `Expired (${Math.abs(days)}d ago)`;
+    if (days === 0) return 'Expires today';
     if (days === 1) return '1 day left';
     return `${days} days left`;
   };
 
   return (
     <View style={styles.container}>
-      {/* Section Header */}
+      {/* Header */}
       <View style={styles.sectionHeader}>
         <View style={styles.titleRow}>
           <Text style={styles.sectionTitle}>Expiring Soon</Text>
           <View style={styles.countBadge}>
-            <Text style={styles.countBadgeText}>{items.length} items</Text>
+            <Text style={styles.countBadgeText}>{items.length}</Text>
           </View>
         </View>
 
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="View all food inventory"
-          onPress={onPressViewAll}
-          style={({ pressed }) => [
-            styles.viewAllButton,
-            pressed && styles.buttonPressed,
-          ]}>
-          <Text style={styles.viewAllText}>View All</Text>
-          <Text style={styles.arrowIcon}>→</Text>
-        </Pressable>
+        {onPressViewAll ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={onPressViewAll}
+            style={styles.viewAllButton}>
+            <Text style={styles.viewAllText}>View All →</Text>
+          </Pressable>
+        ) : null}
       </View>
 
       {/* Items List */}
       <View style={styles.list}>
-        {items.map((item) => {
-          const badgeStyle = getBadgeStyle(item.status);
-          const isDone = item.is_used;
+        {items.length === 0 ? (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyIcon}>🎉</Text>
+            <Text style={styles.emptyTitle}>All Fresh!</Text>
+            <Text style={styles.emptySubtitle}>
+              No items expiring today or tomorrow.
+            </Text>
+          </View>
+        ) : (
+          items.map((item) => {
+            const days = getDaysRemaining(item.expiryDate);
+            const status = calculateExpiryStatus(item.expiryDate);
+            const badge = getBadgeStyle(status);
+            const isDone = item.isUsed;
 
-          return (
-            <Pressable
-              key={item.id}
-              accessibilityRole="button"
-              accessibilityLabel={`${item.name}, ${item.days_left} days left, status: ${item.status_label}`}
-              onPress={() => onPressItem?.(item)}
-              style={({ pressed }) => [
-                styles.itemCard,
-                badgeStyle.cardHighlight,
-                isDone && styles.itemCardUsed,
-                pressed && styles.itemCardPressed,
-              ]}>
-              <View style={styles.cardMainRow}>
-                {/* Food Icon Badge */}
-                <View
-                  style={[
-                    styles.itemIconBadge,
-                    isDone && styles.itemIconBadgeUsed,
-                  ]}>
-                  <Text style={styles.itemIconText}>{item.icon}</Text>
-                </View>
-
-                {/* Details */}
-                <View style={styles.detailsCol}>
+            return (
+              <View
+                key={item.id}
+                style={[styles.itemCard, isDone && styles.itemCardUsed]}>
+                {/* Main Content Area */}
+                <Pressable
+                  onPress={() => onPressItem?.(item)}
+                  style={styles.cardContent}>
                   <View style={styles.nameRow}>
                     <Text
-                      style={[styles.itemName, isDone && styles.itemNameUsed]}>
+                      style={[styles.itemName, isDone && styles.itemNameUsed]}
+                      numberOfLines={1}>
                       {item.name}
                     </Text>
-                    {/* Status Badge */}
-                    <View
-                      style={[styles.statusBadgeBase, badgeStyle.container]}>
-                      <View style={[styles.badgeDot, badgeStyle.dot]} />
-                      <Text style={[styles.statusBadgeText, badgeStyle.text]}>
-                        {item.status_label}
+                    {/* Natural Badge */}
+                    <View style={[styles.statusBadge, badge.container]}>
+                      <Text style={[styles.statusBadgeText, badge.text]}>
+                        {status}
                       </Text>
                     </View>
                   </View>
 
-                  {/* Meta: Days left & Storage */}
+                  {/* Subtitle details */}
                   <View style={styles.metaRow}>
-                    <Text style={styles.daysLeftText}>
-                      ⏱️ {formatDaysLeft(item.days_left)}
+                    <Text style={styles.metaText}>
+                      {item.quantity} {item.unit}
                     </Text>
                     <Text style={styles.metaDivider}>•</Text>
-                    <Text style={styles.storageLocationText}>
-                      {item.storage_location.charAt(0).toUpperCase() +
-                        item.storage_location.slice(1)}
-                    </Text>
-                    {item.notes ? (
-                      <>
-                        <Text style={styles.metaDivider}>•</Text>
-                        <Text
-                          style={styles.notesText}
-                          numberOfLines={1}
-                          ellipsizeMode="tail">
-                          {item.notes}
-                        </Text>
-                      </>
-                    ) : null}
-                  </View>
-
-                  {/* Urgency Progress Bar */}
-                  <View style={styles.progressTrack}>
-                    <View
+                    <Text style={styles.metaText}>{item.storageLocation}</Text>
+                    <Text style={styles.metaDivider}>•</Text>
+                    <Text
                       style={[
-                        styles.progressBar,
-                        badgeStyle.bar,
-                        { width: getProgressWidth(item.days_left) },
-                      ]}
-                    />
+                        styles.daysText,
+                        days <= 2 && styles.daysTextUrgent,
+                      ]}>
+                      {formatDaysText(days)}
+                    </Text>
                   </View>
-                </View>
+                </Pressable>
 
-                {/* Mark Used / Save Checkbox */}
+                {/* Sibling Check Button (No Nested Pressable) */}
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel={`Mark ${item.name} as used or saved`}
+                  accessibilityLabel="Mark used"
                   onPress={() => onToggleUsed?.(item.id)}
                   hitSlop={8}
-                  style={({ pressed }) => [
+                  style={[
                     styles.checkButton,
                     isDone && styles.checkButtonActive,
-                    pressed && styles.buttonPressed,
                   ]}>
                   <Text
                     style={[
-                      styles.checkIcon,
-                      isDone && styles.checkIconActive,
+                      styles.checkButtonText,
+                      isDone && styles.checkButtonTextActive,
                     ]}>
                     {isDone ? '✓' : '○'}
                   </Text>
                 </Pressable>
               </View>
-            </Pressable>
-          );
-        })}
+            );
+          })
+        )}
       </View>
     </View>
   );
@@ -194,15 +155,15 @@ export function ExpiringSoonList({
 
 const styles = StyleSheet.create({
   container: {
-    paddingHorizontal: FreshTheme.spacing.lg,
-    paddingTop: FreshTheme.spacing.md,
-    paddingBottom: FreshTheme.spacing.xs,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 4,
   },
   sectionHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: FreshTheme.spacing.sm + 2,
+    alignItems: 'center',
+    marginBottom: 12,
   },
   titleRow: {
     flexDirection: 'row',
@@ -210,235 +171,177 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: FreshTheme.colors.textPrimary,
-    letterSpacing: -0.3,
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0F172A',
   },
   countBadge: {
-    backgroundColor: FreshTheme.colors.primaryLight,
+    backgroundColor: '#F1F5F9',
     paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: FreshTheme.borderRadius.full,
-    borderWidth: 1,
-    borderColor: FreshTheme.colors.primaryBorder,
+    borderRadius: 12,
   },
   countBadgeText: {
     fontSize: 11,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  emptyCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingVertical: 24,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyIcon: {
+    fontSize: 24,
+    marginBottom: 6,
+  },
+  emptyTitle: {
+    fontSize: 14,
     fontWeight: '700',
-    color: FreshTheme.colors.primaryDark,
+    color: '#0F172A',
+    marginBottom: 2,
+  },
+  emptySubtitle: {
+    fontSize: 12,
+    color: '#64748B',
+    textAlign: 'center',
   },
   viewAllButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
     paddingVertical: 4,
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
   },
   viewAllText: {
     fontSize: 13,
-    fontWeight: '700',
-    color: FreshTheme.colors.primary,
-  },
-  arrowIcon: {
-    fontSize: 14,
-    color: FreshTheme.colors.primary,
-    fontWeight: '700',
+    fontWeight: '600',
+    color: '#16A34A',
   },
   list: {
-    gap: FreshTheme.spacing.sm + 2,
+    gap: 8,
   },
   itemCard: {
-    backgroundColor: FreshTheme.colors.cardBg,
-    borderRadius: FreshTheme.borderRadius.lg,
-    padding: FreshTheme.spacing.md,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: FreshTheme.colors.borderLight,
-    ...FreshTheme.shadows.card,
-  },
-  itemCardPressed: {
-    transform: [{ scale: 0.985 }],
-    opacity: 0.9,
+    borderColor: '#E2E8F0',
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 1,
   },
   itemCardUsed: {
     opacity: 0.6,
     backgroundColor: '#F8FAFC',
-    borderColor: '#E2E8F0',
   },
-  cardHighlightUseToday: {
-    borderLeftWidth: 4,
-    borderLeftColor: FreshTheme.colors.useToday.text,
-  },
-  cardHighlightUseSoon: {
-    borderLeftWidth: 4,
-    borderLeftColor: FreshTheme.colors.useSoon.text,
-  },
-  cardHighlightFresh: {
-    borderLeftWidth: 4,
-    borderLeftColor: FreshTheme.colors.fresh.text,
-  },
-  cardMainRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  itemIconBadge: {
-    width: 46,
-    height: 46,
-    borderRadius: FreshTheme.borderRadius.md,
-    backgroundColor: FreshTheme.colors.primarySubtle,
-    borderWidth: 1,
-    borderColor: FreshTheme.colors.borderGreenSubtle,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: FreshTheme.spacing.md - 2,
-  },
-  itemIconBadgeUsed: {
-    backgroundColor: '#F1F5F9',
-    borderColor: '#E2E8F0',
-  },
-  itemIconText: {
-    fontSize: 24,
-  },
-  detailsCol: {
+  cardContent: {
     flex: 1,
-    marginRight: FreshTheme.spacing.sm,
+    paddingRight: 10,
   },
   nameRow: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: 4,
-    flexWrap: 'wrap',
-    gap: 6,
   },
   itemName: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '700',
-    color: FreshTheme.colors.textPrimary,
+    color: '#0F172A',
+    flex: 1,
+    marginRight: 8,
   },
   itemNameUsed: {
     textDecorationLine: 'line-through',
-    color: FreshTheme.colors.textMuted,
+    color: '#94A3B8',
   },
-  statusBadgeBase: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  statusBadge: {
     paddingHorizontal: 8,
     paddingVertical: 3,
-    borderRadius: FreshTheme.borderRadius.full,
+    borderRadius: 6,
     borderWidth: 1,
-    gap: 4,
-  },
-  badgeDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
   },
   statusBadgeText: {
     fontSize: 11,
     fontWeight: '700',
   },
+  badgeExpired: {
+    backgroundColor: '#FEE2E2',
+    borderColor: '#FCA5A5',
+  },
+  badgeTextExpired: {
+    color: '#DC2626',
+  },
   badgeUseToday: {
-    backgroundColor: FreshTheme.colors.useToday.badgeBg,
-    borderColor: FreshTheme.colors.useToday.badgeBorder,
+    backgroundColor: '#FFEDD5',
+    borderColor: '#FDBA74',
   },
   badgeTextUseToday: {
-    color: FreshTheme.colors.useToday.text,
-  },
-  badgeDotUseToday: {
-    backgroundColor: FreshTheme.colors.useToday.dot,
-  },
-  progressBarUseToday: {
-    backgroundColor: FreshTheme.colors.useToday.barColor,
+    color: '#EA580C',
   },
   badgeUseSoon: {
-    backgroundColor: FreshTheme.colors.useSoon.badgeBg,
-    borderColor: FreshTheme.colors.useSoon.badgeBorder,
+    backgroundColor: '#FEF3C7',
+    borderColor: '#FCD34D',
   },
   badgeTextUseSoon: {
-    color: FreshTheme.colors.useSoon.text,
-  },
-  badgeDotUseSoon: {
-    backgroundColor: FreshTheme.colors.useSoon.dot,
-  },
-  progressBarUseSoon: {
-    backgroundColor: FreshTheme.colors.useSoon.barColor,
+    color: '#D97706',
   },
   badgeFresh: {
-    backgroundColor: FreshTheme.colors.fresh.badgeBg,
-    borderColor: FreshTheme.colors.fresh.badgeBorder,
+    backgroundColor: '#DCFCE7',
+    borderColor: '#86EFAC',
   },
   badgeTextFresh: {
-    color: FreshTheme.colors.fresh.text,
-  },
-  badgeDotFresh: {
-    backgroundColor: FreshTheme.colors.fresh.dot,
-  },
-  progressBarFresh: {
-    backgroundColor: FreshTheme.colors.fresh.barColor,
+    color: '#16A34A',
   },
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    flexWrap: 'wrap',
-    marginBottom: 6,
-    gap: 4,
+    gap: 6,
   },
-  daysLeftText: {
+  metaText: {
     fontSize: 12,
-    fontWeight: '600',
-    color: FreshTheme.colors.textSecondary,
+    color: '#64748B',
   },
   metaDivider: {
-    fontSize: 12,
-    color: FreshTheme.colors.textMuted,
+    fontSize: 10,
+    color: '#CBD5E1',
   },
-  storageLocationText: {
+  daysText: {
     fontSize: 12,
     fontWeight: '500',
-    color: FreshTheme.colors.primaryDark,
+    color: '#64748B',
   },
-  notesText: {
-    fontSize: 11,
-    fontWeight: '400',
-    color: FreshTheme.colors.textMuted,
-    maxWidth: 120,
-  },
-  progressTrack: {
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#F1F5F9',
-    overflow: 'hidden',
-    width: '100%',
-  },
-  progressBar: {
-    height: '100%',
-    borderRadius: 2,
+  daysTextUrgent: {
+    color: '#D97706',
+    fontWeight: '600',
   },
   checkButton: {
-    width: 34,
-    height: 34,
-    borderRadius: FreshTheme.borderRadius.full,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     borderWidth: 1.5,
-    borderColor: FreshTheme.colors.borderLight,
+    borderColor: '#CBD5E1',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#FFFFFF',
   },
   checkButtonActive: {
-    backgroundColor: FreshTheme.colors.primary,
-    borderColor: FreshTheme.colors.primaryDark,
+    borderColor: '#16A34A',
+    backgroundColor: '#16A34A',
   },
-  checkIcon: {
-    fontSize: 16,
-    color: FreshTheme.colors.textMuted,
+  checkButtonText: {
+    fontSize: 13,
+    color: '#94A3B8',
     fontWeight: '700',
   },
-  checkIconActive: {
+  checkButtonTextActive: {
     color: '#FFFFFF',
   },
-  buttonPressed: {
-    opacity: 0.75,
-  },
 });
-

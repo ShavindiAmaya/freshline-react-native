@@ -40,7 +40,7 @@ export function SummaryCards({
         <View style={styles.cardContent}>
           <Text style={styles.statValue}>{stats.total_items}</Text>
           <Text style={styles.statLabel}>Total Food Items</Text>
-          <Text style={styles.statSub}>Sample inventory • Demo</Text>
+          <Text style={styles.statSub}>Active inventory</Text>
         </View>
       </Pressable>
 
@@ -68,7 +68,7 @@ export function SummaryCards({
             {stats.expiring_soon}
           </Text>
           <Text style={styles.statLabel}>Expiring Soon</Text>
-          <Text style={styles.statSubExpiring}>Within 2 days • Demo</Text>
+          <Text style={styles.statSubExpiring}>Within 2 days</Text>
         </View>
       </Pressable>
 
@@ -96,7 +96,7 @@ export function SummaryCards({
             {stats.food_saved}
           </Text>
           <Text style={styles.statLabel}>Food Saved</Text>
-          <Text style={styles.statSubSaved}>This month • Demo</Text>
+          <Text style={styles.statSubSaved}>This month</Text>
         </View>
       </Pressable>
     </View>

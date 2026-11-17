@@ -1,31 +1,103 @@
-import { FoodItem, FoodSummaryStats, UserProfile } from '@/types/food';
-
-/**
- * Mock Food Data for FreshLine
- *
- * Prepared for future Supabase PostgreSQL integration.
- * In production, these will be populated from:
- * `supabase.from('food_items').select('*').order('days_left', { ascending: true })`
- */
+import {
+  DashboardFoodItem,
+  FoodItem,
+  FoodSummaryStats,
+  UserProfile,
+  calculateExpiryStatus,
+} from '@/types/food';
 
 export const INITIAL_USER_PROFILE: UserProfile = {
   id: 'usr_freshline_01',
   full_name: 'Alex Johnson',
   greeting_time: 'Good morning!',
   tagline: "Let's keep your food fresh.",
-  avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+  avatar_url: '',
   streak_days: 5,
 };
 
 export const INITIAL_SUMMARY_STATS: FoodSummaryStats = {
-  total_items: 12,
+  total_items: 4,
   expiring_soon: 3,
   food_saved: 8,
   co2_saved_kg: 3.4,
   money_saved_usd: 42.5,
 };
 
-export const INITIAL_FOOD_ITEMS: FoodItem[] = [
+// Initial inventory items using the official FoodItem interface
+export const INITIAL_INVENTORY_ITEMS: FoodItem[] = [
+  {
+    id: 'item_1',
+    userId: 'usr_freshline_01',
+    name: 'Fresh Whole Milk',
+    category: 'Dairy',
+    quantity: 1,
+    unit: 'L',
+    purchaseDate: new Date(Date.now() - 4 * 86400000).toISOString().split('T')[0],
+    expiryDate: new Date().toISOString().split('T')[0], // expires today
+    storageLocation: 'Fridge',
+    createdAt: new Date().toISOString(),
+    status: 'Use Today',
+    isUsed: false,
+  },
+  {
+    id: 'item_2',
+    userId: 'usr_freshline_01',
+    name: 'Chicken Breast',
+    category: 'Meat',
+    quantity: 500,
+    unit: 'g',
+    purchaseDate: new Date(Date.now() - 2 * 86400000).toISOString().split('T')[0],
+    expiryDate: new Date(Date.now() + 1 * 86400000).toISOString().split('T')[0], // 1 day left
+    storageLocation: 'Fridge',
+    createdAt: new Date().toISOString(),
+    status: 'Use Soon',
+    isUsed: false,
+  },
+  {
+    id: 'item_3',
+    userId: 'usr_freshline_01',
+    name: 'Organic Tomatoes',
+    category: 'Produce',
+    quantity: 6,
+    unit: 'Pieces',
+    purchaseDate: new Date(Date.now() - 3 * 86400000).toISOString().split('T')[0],
+    expiryDate: new Date(Date.now() + 2 * 86400000).toISOString().split('T')[0], // 2 days left
+    storageLocation: 'Pantry',
+    createdAt: new Date().toISOString(),
+    status: 'Use Soon',
+    isUsed: false,
+  },
+  {
+    id: 'item_4',
+    userId: 'usr_freshline_01',
+    name: 'Greek Yogurt',
+    category: 'Dairy',
+    quantity: 2,
+    unit: 'Pack',
+    purchaseDate: new Date(Date.now() - 1 * 86400000).toISOString().split('T')[0],
+    expiryDate: new Date(Date.now() + 5 * 86400000).toISOString().split('T')[0], // 5 days left
+    storageLocation: 'Fridge',
+    createdAt: new Date().toISOString(),
+    status: 'Fresh',
+    isUsed: false,
+  },
+  {
+    id: 'item_5',
+    userId: 'usr_freshline_01',
+    name: 'Sourdough Bread',
+    category: 'Bakery',
+    quantity: 1,
+    unit: 'Pack',
+    purchaseDate: new Date(Date.now() - 5 * 86400000).toISOString().split('T')[0],
+    expiryDate: new Date(Date.now() - 1 * 86400000).toISOString().split('T')[0],
+    storageLocation: 'Pantry',
+    createdAt: new Date().toISOString(),
+    status: 'Fresh',
+    isUsed: true,
+  },
+];
+
+export const INITIAL_FOOD_ITEMS: DashboardFoodItem[] = [
   {
     id: 'food_1',
     name: 'Milk',
